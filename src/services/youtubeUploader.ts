@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import fs from 'fs/promises';
+import fs from 'fs';
 import { VideoScript } from './aiService.js';
 
 interface UploadResult {
@@ -27,7 +27,41 @@ export async function uploadToYouTube(
 
     const youtube = google.youtube('v3');
 
+    // Check which channel we're authenticated with
+    try {
+      const channelsResponse = await youtube.channels.list({
+        auth: oauth2Client,
+        part: ['snippet', 'id'],
+        mine: true
+      });
+      
+      if (channelsResponse.data.items && channelsResponse.data.items.length > 0) {
+        const channels = channelsResponse.data.items;
+        console.log(`📺 Found ${channels.length} channel(s) for this account:`);
+        channels.forEach((channel, index) => {
+          const isDefault = index === 0;
+          console.log(`  ${isDefault ? '→' : ' '} ${channel.snippet?.title || 'Unknown'} (${channel.id}) ${isDefault ? '[DEFAULT - videos will upload here]' : ''}`);
+        });
+        
+        // If channel ID is specified, verify it matches
+        if (process.env.YOUTUBE_CHANNEL_ID) {
+          const targetChannel = channels.find(c => c.id === process.env.YOUTUBE_CHANNEL_ID);
+          if (!targetChannel) {
+            console.warn(`⚠️  Warning: Specified channel ID ${process.env.YOUTUBE_CHANNEL_ID} not found. Uploading to default channel.`);
+          } else if (targetChannel.id !== channels[0]?.id) {
+            console.warn(`⚠️  Warning: Target channel "${targetChannel.snippet?.title}" is not the default channel.`);
+            console.warn(`   Videos will upload to: "${channels[0]?.snippet?.title}" (default channel)`);
+            console.warn(`   To fix: Set "${targetChannel.snippet?.title}" as your default channel in YouTube Studio`);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Could not verify channel information:', error);
+    }
+
     // Upload video
+    // Note: For accounts with multiple channels, videos upload to the DEFAULT channel
+    // To change which channel receives uploads, set it as default in YouTube Studio
     const videoResponse = await youtube.videos.insert({
       auth: oauth2Client,
       part: ['snippet', 'status'],
@@ -46,7 +80,7 @@ export async function uploadToYouTube(
         }
       },
       media: {
-        body: await fs.readFile(videoPath)
+        body: fs.createReadStream(videoPath)
       }
     });
 
@@ -62,7 +96,7 @@ export async function uploadToYouTube(
           auth: oauth2Client,
           videoId: videoId,
           media: {
-            body: await fs.readFile(thumbnailPath)
+            body: fs.createReadStream(thumbnailPath)
           }
         });
       } catch (error) {

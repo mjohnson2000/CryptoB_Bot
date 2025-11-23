@@ -22,7 +22,7 @@ export interface VideoCreationResult {
 
 export interface JobProgress {
   jobId: string;
-  status: 'pending' | 'scraping' | 'analyzing' | 'generating_script' | 'creating_video' | 'updating_timestamps' | 'creating_thumbnail' | 'ready' | 'uploading' | 'completed' | 'error';
+  status: 'pending' | 'scraping' | 'analyzing' | 'fetching_prices' | 'fetching_nfts' | 'generating_script' | 'creating_video' | 'updating_timestamps' | 'creating_thumbnail' | 'ready' | 'uploading' | 'completed' | 'error';
   progress: number; // 0-100
   message: string;
   result?: VideoCreationResult;

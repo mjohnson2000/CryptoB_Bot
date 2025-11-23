@@ -110,6 +110,12 @@ videoRouter.get('/preview/video/:filename', (req, res) => {
     
     res.sendFile(videoPath, (err) => {
       if (err) {
+        // Ignore EPIPE errors (client disconnected) and ECONNRESET (connection reset)
+        const nodeErr = err as NodeJS.ErrnoException;
+        if (nodeErr.code === 'EPIPE' || nodeErr.code === 'ECONNRESET') {
+          // Client disconnected, no need to log or respond
+          return;
+        }
         console.error('Error serving video:', err);
         if (!res.headersSent) {
           res.status(404).json({ error: 'Video not found' });
@@ -132,6 +138,12 @@ videoRouter.get('/preview/thumbnail/:filename', (req, res) => {
     
     res.sendFile(thumbnailPath, (err) => {
       if (err) {
+        // Ignore EPIPE errors (client disconnected) and ECONNRESET (connection reset)
+        const nodeErr = err as NodeJS.ErrnoException;
+        if (nodeErr.code === 'EPIPE' || nodeErr.code === 'ECONNRESET') {
+          // Client disconnected, no need to log or respond
+          return;
+        }
         console.error('Error serving thumbnail:', err);
         if (!res.headersSent) {
           res.status(404).json({ error: 'Thumbnail not found' });

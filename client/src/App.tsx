@@ -4,7 +4,7 @@ import './App.css';
 
 interface JobProgress {
   jobId: string;
-  status: 'pending' | 'scraping' | 'analyzing' | 'generating_script' | 'creating_video' | 'creating_thumbnail' | 'ready' | 'uploading' | 'completed' | 'error';
+  status: 'pending' | 'scraping' | 'analyzing' | 'fetching_prices' | 'fetching_nfts' | 'generating_script' | 'creating_video' | 'updating_timestamps' | 'creating_thumbnail' | 'ready' | 'uploading' | 'completed' | 'error';
   progress: number;
   message: string;
   result?: {
@@ -170,8 +170,11 @@ function App() {
       case 'pending': return '⏳';
       case 'scraping': return '🔍';
       case 'analyzing': return '🤖';
+      case 'fetching_prices': return '📊';
+      case 'fetching_nfts': return '🖼️';
       case 'generating_script': return '✍️';
       case 'creating_video': return '🎬';
+      case 'updating_timestamps': return '⏱️';
       case 'creating_thumbnail': return '🖼️';
       case 'ready': return '✅';
       case 'uploading': return '📤';
