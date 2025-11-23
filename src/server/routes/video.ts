@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createVideo, approveAndUpload, getJobProgress } from '../../services/videoOrchestrator.js';
+import { createVideo, approveAndUpload, getJobProgress, jobStore } from '../../services/videoOrchestrator.js';
 import path from 'path';
 import express from 'express';
 
@@ -8,6 +8,17 @@ export const videoRouter = Router();
 videoRouter.post('/create', async (req, res) => {
   try {
     const jobId = Date.now().toString();
+    
+    // Initialize job in store BEFORE starting async process
+    // This ensures the job exists immediately for status polling
+    const initialProgress = {
+      jobId,
+      status: 'pending' as const,
+      progress: 0,
+      message: 'Initializing video creation...',
+      result: undefined
+    };
+    jobStore.set(jobId, initialProgress);
     
     // Start video creation process asynchronously
     createVideo(jobId).catch(error => {
@@ -22,6 +33,7 @@ videoRouter.post('/create', async (req, res) => {
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error'
         };
+        jobStore.set(jobId, progress);
       }
     });
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import axios from 'axios';
 import './App.css';
 
@@ -19,6 +19,7 @@ interface JobProgress {
     videoPath?: string;
     thumbnailPath?: string;
     readyForApproval?: boolean;
+    error?: string;
   };
 }
 
@@ -31,12 +32,22 @@ function App() {
   const handleCreateVideo = async () => {
     setLoading(true);
     setError(null);
-    setProgress(null);
+    
+    // Initialize progress immediately so UI shows something right away
+    const initialProgress: JobProgress = {
+      jobId: '',
+      status: 'pending',
+      progress: 0,
+      message: 'Initializing video creation...'
+    };
+    setProgress(initialProgress);
 
     try {
       const response = await axios.post<{ success: boolean; jobId: string; message: string }>('/api/video/create');
       
       if (response.data.jobId) {
+        // Update progress with actual jobId
+        setProgress(prev => prev ? { ...prev, jobId: response.data.jobId } : initialProgress);
         pollStatus(response.data.jobId);
       }
     } catch (err) {
@@ -45,23 +56,28 @@ function App() {
         : 'Unknown error occurred';
       setError(errorMessage);
       setLoading(false);
+      setProgress(null);
     }
   };
 
   const pollStatus = async (jobId: string) => {
     const maxAttempts = 120; // 10 minutes max
     let attempts = 0;
+    let consecutive404s = 0;
+    let interval: NodeJS.Timeout | null = null;
 
-    const interval = setInterval(async () => {
+    // Poll immediately first time
+    const poll = async () => {
       attempts++;
       
       try {
         const response = await axios.get<JobProgress>(`/api/video/status/${jobId}`);
+        consecutive404s = 0; // Reset counter on success
         setProgress(response.data);
         setLoading(response.data.status !== 'ready' && response.data.status !== 'completed' && response.data.status !== 'error');
 
         if (response.data.status === 'error') {
-          clearInterval(interval);
+          if (interval) clearInterval(interval);
           setLoading(false);
           if (response.data.result?.error) {
             setError(response.data.result.error);
@@ -69,33 +85,57 @@ function App() {
             setError(response.data.message);
           }
         } else if (response.data.status === 'completed' || response.data.status === 'ready') {
-          clearInterval(interval);
+          if (interval) clearInterval(interval);
           setLoading(false);
         } else if (attempts >= maxAttempts) {
-          clearInterval(interval);
+          if (interval) clearInterval(interval);
           setLoading(false);
           setError('Video creation is taking longer than expected. Check server logs.');
         }
       } catch (err) {
-        console.error('Error polling status:', err);
-        const errorMessage = axios.isAxiosError(err)
-          ? err.response?.data?.message || err.message
-          : 'Error checking status';
-        
         if (err && axios.isAxiosError(err) && err.response?.status === 404) {
-          // Job not found yet, keep polling
-          if (attempts < 10) {
+          consecutive404s++;
+          // Job not found yet, keep polling but show a message
+          if (consecutive404s <= 15) {
+            // Update progress to show we're waiting
+            setProgress(prev => prev ? {
+              ...prev,
+              message: 'Waiting for job to initialize...',
+              progress: 0
+            } : {
+              jobId,
+              status: 'pending',
+              progress: 0,
+              message: 'Initializing video creation...'
+            });
             return; // Continue polling
+          } else {
+            // Too many 404s, something is wrong
+            if (interval) clearInterval(interval);
+            setLoading(false);
+            setError('Job not found. The server may have restarted. Please try creating a new video.');
+            setProgress(null);
+          }
+        } else {
+          console.error('Error polling status:', err);
+          const errorMessage = axios.isAxiosError(err)
+            ? err.response?.data?.message || err.message
+            : 'Error checking status';
+          
+          if (attempts >= maxAttempts) {
+            if (interval) clearInterval(interval);
+            setLoading(false);
+            setError(errorMessage);
           }
         }
-        
-        if (attempts >= maxAttempts) {
-          clearInterval(interval);
-          setLoading(false);
-          setError(errorMessage);
-        }
       }
-    }, 2000); // Poll every 2 seconds for better UX
+    };
+
+    // Poll immediately
+    await poll();
+    
+    // Then poll every 2 seconds
+    interval = setInterval(poll, 2000);
   };
 
   const handleApproveAndUpload = async (jobId: string) => {
@@ -158,7 +198,7 @@ function App() {
       <div className="container">
         <header className="header">
           <h1 className="title">
-            <span className="crypto-icon">🚀</span>
+            <span className="crypto-icon">₿</span>
             Crypto B
           </h1>
           <p className="subtitle">Automated YouTube Crypto News Bot</p>

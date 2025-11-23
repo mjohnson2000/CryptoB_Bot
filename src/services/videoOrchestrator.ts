@@ -25,7 +25,7 @@ export interface JobProgress {
 }
 
 // Store job progress in memory (in production, use Redis or database)
-const jobStore = new Map<string, JobProgress>();
+export const jobStore = new Map<string, JobProgress>();
 
 function updateProgress(jobId: string, status: JobProgress['status'], progress: number, message: string) {
   const jobProgress: JobProgress = {
