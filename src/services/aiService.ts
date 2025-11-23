@@ -321,25 +321,28 @@ Format your response as JSON:
       thumbnailTitle = thumbnailTitle.trim();
     }
     
-    // If title is too long, ask AI to create a shorter thumbnail version
-    if (thumbnailTitle.length > 50) {
-      try {
-        const thumbnailPrompt = `Create a SHORT, CATCHY thumbnail title for a YouTube video. This will be displayed on a thumbnail image, so it needs to be:
-- Maximum 40 characters
+    // Always use AI to create an optimal 4-word max thumbnail title
+    try {
+      const thumbnailPrompt = `Create a SHORT, CATCHY thumbnail title for a YouTube crypto news video. This will be displayed on a thumbnail image, so it needs to be:
+- EXACTLY 4 words maximum (no more, no less if possible)
 - Eye-catching and clickable
-- Use power words (BREAKING, SHOCKING, INSANE, MOONING, etc.)
-- Keep the main message but make it punchy
+- Use power words (BREAKING, SHOCKING, INSANE, MOONING, CRASH, SURGE, etc.)
+- Keep the main message but make it punchy and attention-grabbing
+- Focus on the most impactful news element
+- Include relevant emojis when appropriate (₿ for Bitcoin, 🚀 for pumps/mooning, 💎 for diamond hands/valuable, 📈 for gains, 📉 for drops, ⚡ for breaking news, 🔥 for hot trends)
+- Use ALL CAPS for maximum visual impact
+- Add exclamation marks for excitement when appropriate
 
 Original title: "${thumbnailTitle}"
 
-Return ONLY the short thumbnail title, nothing else.`;
+Return ONLY the 4-word thumbnail title with emojis, nothing else. No quotes, no explanations. Make it ALL CAPS with emojis.`;
 
         const thumbnailResponse = await openai.chat.completions.create({
           model: 'gpt-4-turbo-preview',
           messages: [
             {
               role: 'system',
-              content: 'You are an expert at creating short, catchy YouTube thumbnail titles that grab attention.'
+              content: 'You are an expert at creating short, catchy YouTube thumbnail titles that grab attention. Always return exactly 4 words when possible.'
             },
             {
               role: 'user',
@@ -347,28 +350,62 @@ Return ONLY the short thumbnail title, nothing else.`;
             }
           ],
           temperature: 0.9,
-          max_tokens: 50
+          max_tokens: 30
         });
 
         let shortTitle = thumbnailResponse.choices[0]?.message?.content?.trim();
-        if (shortTitle && shortTitle.length <= 50) {
-          // Remove decorative quotes from generated title too
+        if (shortTitle) {
+          // Remove decorative quotes
           const hasQuoteContext = /\b(said|says|announced|stated|declared|quoted|tweeted|posted|wrote|claimed|revealed)\b/i.test(shortTitle);
           if (!hasQuoteContext) {
             shortTitle = shortTitle.replace(/^["']|["']$/g, '');
             shortTitle = shortTitle.replace(/\s*["']\s*/g, ' ');
             shortTitle = shortTitle.trim();
           }
+          
+          // Convert to ALL CAPS for maximum impact (but preserve emojis and punctuation)
+          // Uppercase all letters while preserving emojis, numbers, and punctuation
+          shortTitle = shortTitle.replace(/[a-z]/g, (match) => match.toUpperCase());
+          
+          // Ensure it's 4 words max - count words (emojis don't count as words)
+          // Comprehensive emoji regex: covers most emoji ranges including symbols
+          const emojiRegex = /[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|₿|🚀|💎|📈|📉|⚡|🔥/u;
+          
+          // Split by spaces and filter out empty strings, then count actual words (not emojis)
+          const parts = shortTitle.split(/\s+/).filter(p => p.length > 0);
+          const words = parts.filter(p => !emojiRegex.test(p));
+          
+          if (words.length > 4) {
+            // Keep emojis but limit to 4 words
+            let wordCount = 0;
+            const limitedParts: string[] = [];
+            for (const part of parts) {
+              const isEmoji = emojiRegex.test(part);
+              if (!isEmoji) {
+                wordCount++;
+                if (wordCount > 4) break;
+              }
+              limitedParts.push(part);
+            }
+            shortTitle = limitedParts.join(' ');
+          }
+          
+          // Ensure at least one exclamation mark for excitement (if not already present)
+          if (!shortTitle.includes('!') && !shortTitle.includes('?')) {
+            shortTitle = shortTitle + '!';
+          }
+          
           thumbnailTitle = shortTitle;
+          console.log(`✅ Generated 4-word thumbnail title: "${thumbnailTitle}"`);
         }
       } catch (error) {
-        console.warn('Failed to generate thumbnail title, using original:', error);
-        // Fallback: truncate and add ellipsis if needed
-        if (thumbnailTitle.length > 50) {
-          thumbnailTitle = thumbnailTitle.substring(0, 47) + '...';
+        console.warn('Failed to generate thumbnail title, using fallback:', error);
+        // Fallback: take first 4 words of original title
+        const words = thumbnailTitle.split(/\s+/).filter((w: string) => w.length > 0);
+        if (words.length > 4) {
+          thumbnailTitle = words.slice(0, 4).join(' ');
         }
       }
-    }
 
     // Add reference links to description
     let finalDescription = parsed.description || '';
@@ -392,7 +429,7 @@ Return ONLY the short thumbnail title, nothing else.`;
 
     return {
       title: parsed.title || 'Latest Crypto News',
-      thumbnailTitle: thumbnailTitle, // Shorter version for thumbnail
+      thumbnailTitle: thumbnailTitle, // Shorter version for thumbnail (4 words max)
       description: finalDescription,
       tags: parsed.tags || [],
       script: parsed.script || '',
@@ -401,9 +438,103 @@ Return ONLY the short thumbnail title, nothing else.`;
       nftUpdate: nftUpdate
     };
   } catch (error) {
-    console.error('Error generating script:', error);
-    // Fallback to mock script
-    return getMockScript(topics);
+    console.error('Error generating video script:', error);
+    throw error;
+  }
+}
+
+export interface ThumbnailDesign {
+  backgroundColor: string; // Hex color for main background
+  accentColor: string; // Hex color for accents
+  textColor: string; // Hex color for main text
+  layout: 'centered' | 'split' | 'overlay'; // Layout style
+  visualElements: string[]; // Suggested visual elements (e.g., ["gradient", "grid", "glow"])
+  emphasis: 'bold' | 'minimal' | 'dynamic'; // Visual emphasis style
+  description: string; // Description of the design approach
+}
+
+export async function generateThumbnailDesign(
+  title: string,
+  topics: TrendingTopic[]
+): Promise<ThumbnailDesign> {
+  try {
+    const openai = getOpenAIClient();
+    
+    const topicsText = topics.slice(0, 3).map(t => t.title).join(', ');
+    
+    const designPrompt = `You are a YouTube thumbnail design expert specializing in crypto news videos. Create a captivating, high-quality thumbnail design specification.
+
+Video Title: "${title}"
+Main Topics: ${topicsText}
+
+Generate a thumbnail design that is:
+- Eye-catching and clickable
+- Professional and high-quality
+- Optimized for YouTube (1280x720px)
+- Uses bold, contrasting colors
+- Has strong visual hierarchy
+- Appeals to crypto enthusiasts
+
+Return a JSON object with this exact structure:
+{
+  "backgroundColor": "#hexcolor (dark, professional background)",
+  "accentColor": "#hexcolor (bright, attention-grabbing accent - Bitcoin orange #F7931A or similar)",
+  "textColor": "#hexcolor (high contrast text color, usually white or bright)",
+  "layout": "centered|split|overlay (choose best for this content)",
+  "visualElements": ["element1", "element2"] (suggest 2-3 visual elements like "gradient", "glow", "grid", "particles", "geometric shapes"),
+  "emphasis": "bold|minimal|dynamic (visual style)",
+  "description": "Brief description of the design approach and why it will be effective"
+}
+
+Focus on making it CAPTIVATING and HIGH QUALITY. Return ONLY valid JSON, no markdown, no code blocks.`;
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4-turbo-preview',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert YouTube thumbnail designer. Always return valid JSON only, no markdown formatting.'
+        },
+        {
+          role: 'user',
+          content: designPrompt
+        }
+      ],
+      temperature: 0.8,
+      response_format: { type: 'json_object' }
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('No response from OpenAI');
+    }
+
+    // Parse JSON (remove markdown code blocks if present)
+    const jsonContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const design = JSON.parse(jsonContent) as ThumbnailDesign;
+
+    // Validate and set defaults
+    return {
+      backgroundColor: design.backgroundColor || '#0a0a0a',
+      accentColor: design.accentColor || '#F7931A',
+      textColor: design.textColor || '#FFFFFF',
+      layout: design.layout || 'centered',
+      visualElements: design.visualElements || ['gradient', 'glow'],
+      emphasis: design.emphasis || 'bold',
+      description: design.description || 'Professional crypto news thumbnail'
+    };
+  } catch (error) {
+    console.warn('Failed to generate thumbnail design, using defaults:', error);
+    // Return default high-quality design
+    return {
+      backgroundColor: '#0a0a0a',
+      accentColor: '#F7931A',
+      textColor: '#FFFFFF',
+      layout: 'centered',
+      visualElements: ['gradient', 'glow', 'grid'],
+      emphasis: 'bold',
+      description: 'Default high-contrast crypto thumbnail design'
+    };
   }
 }
 

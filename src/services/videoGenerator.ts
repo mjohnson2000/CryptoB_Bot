@@ -774,43 +774,100 @@ export async function generateThumbnail(
     
     const thumbnailPath = path.join(outputDir, `thumbnail_${Date.now()}.png`);
 
+    // Generate AI-powered thumbnail design
+    const { generateThumbnailDesign } = await import('./aiService.js');
+    let thumbnailDesign;
+    try {
+      console.log('🎨 Generating AI-powered thumbnail design...');
+      thumbnailDesign = await generateThumbnailDesign(script.title, script.topics);
+      console.log(`✅ Thumbnail design: ${thumbnailDesign.description}`);
+    } catch (error) {
+      console.warn('Failed to generate AI design, using defaults:', error);
+      thumbnailDesign = {
+        backgroundColor: '#0a0a0a',
+        accentColor: '#F7931A',
+        textColor: '#FFFFFF',
+        layout: 'centered',
+        visualElements: ['gradient', 'glow', 'grid'],
+        emphasis: 'bold',
+        description: 'Default high-quality design'
+      };
+    }
+
     // Try Canvas first, fallback to Sharp if Canvas fails
     try {
       const { createCanvas } = await import('canvas');
       const canvas = createCanvas(1280, 720);
       const ctx = canvas.getContext('2d');
 
-      // PROVEN STYLE: Dark background with Bitcoin orange accent
-      // Solid dark background for maximum contrast
+      // AI-ENHANCED STYLE: Use AI-generated design specifications
+      // Create background gradient based on AI design
+      const bgColor = thumbnailDesign.backgroundColor;
+      const accentColor = thumbnailDesign.accentColor;
+      
+      // Parse hex color to RGB for gradient
+      const hexToRgb = (hex: string) => {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+          r: parseInt(result[1], 16),
+          g: parseInt(result[2], 16),
+          b: parseInt(result[3], 16)
+        } : { r: 10, g: 10, b: 10 };
+      };
+      
+      const bgRgb = hexToRgb(bgColor);
+      const accentRgb = hexToRgb(accentColor);
+      
+      // Enhanced gradient background
       const bgGradient = ctx.createLinearGradient(0, 0, 1280, 720);
-      bgGradient.addColorStop(0, '#0a0a0a');
-      bgGradient.addColorStop(0.5, '#1a1a2e');
-      bgGradient.addColorStop(1, '#0a0a0a');
+      const darkerBg = `rgb(${Math.max(0, bgRgb.r - 5)}, ${Math.max(0, bgRgb.g - 5)}, ${Math.max(0, bgRgb.b - 5)})`;
+      const lighterBg = `rgb(${Math.min(255, bgRgb.r + 20)}, ${Math.min(255, bgRgb.g + 20)}, ${Math.min(255, bgRgb.b + 20)})`;
+      bgGradient.addColorStop(0, darkerBg);
+      bgGradient.addColorStop(0.5, lighterBg);
+      bgGradient.addColorStop(1, darkerBg);
       ctx.fillStyle = bgGradient;
       ctx.fillRect(0, 0, 1280, 720);
       
-      // Add Bitcoin orange accent in top right corner
-      const accentGradient = ctx.createRadialGradient(1100, 100, 0, 1100, 100, 300);
-      accentGradient.addColorStop(0, 'rgba(247, 147, 26, 0.4)');
-      accentGradient.addColorStop(1, 'rgba(247, 147, 26, 0)');
+      // Enhanced accent gradient based on AI design
+      const accentGradient = ctx.createRadialGradient(1100, 100, 0, 1100, 100, 350);
+      accentGradient.addColorStop(0, `rgba(${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}, 0.5)`);
+      accentGradient.addColorStop(0.5, `rgba(${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}, 0.2)`);
+      accentGradient.addColorStop(1, `rgba(${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}, 0)`);
       ctx.fillStyle = accentGradient;
-      ctx.fillRect(800, 0, 480, 300);
+      ctx.fillRect(750, 0, 530, 350);
       
-      // Add subtle grid pattern
-      ctx.fillStyle = 'rgba(247, 147, 26, 0.05)';
-      for (let i = 0; i < 1280; i += 50) {
-        ctx.fillRect(i, 0, 1, 720);
+      // Add visual elements based on AI suggestions
+      if (thumbnailDesign.visualElements.includes('grid')) {
+        ctx.fillStyle = `rgba(${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}, 0.06)`;
+        for (let i = 0; i < 1280; i += 50) {
+          ctx.fillRect(i, 0, 1, 720);
+        }
+        for (let i = 0; i < 720; i += 50) {
+          ctx.fillRect(0, i, 1280, 1);
+        }
       }
-      for (let i = 0; i < 720; i += 50) {
-        ctx.fillRect(0, i, 1280, 1);
+      
+      // Add glow effect if suggested
+      if (thumbnailDesign.visualElements.includes('glow')) {
+        const glowGradient = ctx.createRadialGradient(640, 360, 0, 640, 360, 400);
+        glowGradient.addColorStop(0, `rgba(${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}, 0.15)`);
+        glowGradient.addColorStop(1, `rgba(${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}, 0)`);
+        ctx.fillStyle = glowGradient;
+        ctx.fillRect(0, 0, 1280, 720);
       }
 
-      // NEW STYLE: Large, bold title with high contrast - PURE WHITE text
+      // AI-ENHANCED: Large, bold title with high contrast using AI-specified colors
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       
-      // Use thumbnail title if available (shorter, more catchy), otherwise use regular title
+      // Use thumbnail title (4 words max, AI-generated)
       let titleToUse = script.thumbnailTitle || script.title;
+      
+      // Ensure it's 4 words max
+      const words = titleToUse.split(/\s+/).filter(w => w.length > 0);
+      if (words.length > 4) {
+        titleToUse = words.slice(0, 4).join(' ');
+      }
       
       // Remove quotation marks unless they're actual quotes (e.g., "someone said")
       // Check if quotes are used for actual quotations (words like "said", "announced", "stated" nearby)
@@ -823,9 +880,9 @@ export async function generateThumbnail(
       
       // Calculate text sizing - adaptive font size to ensure it fits
       const textMaxWidth = 1100; // Full width minus padding
-      let fontSize = 90; // Start with large, bold font
-      const minFontSize = 60; // Minimum font size
-      const maxLines = 2; // Maximum lines allowed
+      let fontSize = 180; // Start with large, bold font (doubled from 90)
+      const minFontSize = 100; // Minimum font size (reduced to ensure all words fit)
+      const maxLines = 3; // Maximum lines allowed (increased to fit all words)
       
       // Try to fit the title with adaptive font sizing
       let titleLines: string[] = [];
@@ -853,7 +910,7 @@ export async function generateThumbnail(
         }
         
         // Reduce font size and try again
-        fontSize -= 5;
+        fontSize -= 10;
       }
       
       // If still doesn't fit, use the best attempt and truncate if needed
@@ -878,7 +935,8 @@ export async function generateThumbnail(
       }
       
       // Position title in center area (spans both dark and orange sides)
-      const lineHeight = 110;
+      // Calculate line height based on actual font size (1.2x for spacing)
+      const lineHeight = fontSize * 1.2;
       const totalTextHeight = titleLines.length * lineHeight;
       const startY = 360 - (totalTextHeight / 2) + (lineHeight / 2);
       let yPos = startY;
@@ -901,8 +959,8 @@ export async function generateThumbnail(
         ctx.lineWidth = 3; // Thin stroke
         ctx.strokeText(line, 640, yPos);
         
-        // Step 3: Draw PURE WHITE text (no yellow, no gradients - just white)
-        ctx.fillStyle = '#FFFFFF'; // Pure white - this is what works
+        // Step 3: Draw text using AI-specified color for maximum impact
+        ctx.fillStyle = thumbnailDesign.textColor; // AI-optimized text color
         ctx.fillText(line, 640, yPos);
         
         yPos += lineHeight;
@@ -946,14 +1004,14 @@ export async function generateThumbnail(
       drawDateTimeBadge(dateBadgeX, dateBadgeY, dateBadgeWidth, dateBadgeHeight, 8);
       ctx.fill();
       
-      // Orange border - CENTERED around the badge
-      ctx.strokeStyle = '#F7931A';
+      // Accent color border - CENTERED around the badge (using AI-specified accent)
+      ctx.strokeStyle = accentColor;
       ctx.lineWidth = 2;
       drawDateTimeBadge(dateBadgeX, dateBadgeY, dateBadgeWidth, dateBadgeHeight, 8);
       ctx.stroke();
       
-      // White text - PERFECTLY CENTERED both horizontally and vertically
-      ctx.fillStyle = '#FFFFFF';
+      // Text color - PERFECTLY CENTERED (using AI-specified text color)
+      ctx.fillStyle = thumbnailDesign.textColor;
       ctx.font = 'bold 20px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -974,35 +1032,34 @@ export async function generateThumbnail(
         ctx.closePath();
       };
       
-      // Bitcoin orange badge
+      // Accent color badge (using AI-specified accent color)
       const badgeX = 50;
       const badgeY = 50;
       const badgeWidth = 200;
       const badgeHeight = 65;
-      ctx.fillStyle = '#F7931A';
+      ctx.fillStyle = accentColor;
       drawBadge(badgeX, badgeY, badgeWidth, badgeHeight, 10);
       ctx.fill();
       
-      // White text - CENTERED in badge
-      ctx.fillStyle = '#FFFFFF';
+      // Text color - CENTERED in badge (using AI-specified text color)
+      ctx.fillStyle = thumbnailDesign.textColor;
       ctx.font = 'bold 34px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('LATEST', badgeX + (badgeWidth / 2), badgeY + (badgeHeight / 2) + 13);
 
-      // PROVEN STYLE: "Crypto B" branding - simple white text
-      ctx.fillStyle = '#FFFFFF';
+      // AI-ENHANCED: "Crypto B" branding - using AI-specified text color
       ctx.font = 'bold 60px Arial';
       ctx.textAlign = 'right';
       ctx.textBaseline = 'bottom';
       
-      // Thin black outline
+      // Thin black outline for contrast
       ctx.strokeStyle = '#000000';
       ctx.lineWidth = 3;
       ctx.strokeText('₿ Crypto B', 1220, 680);
       
-      // White text
-      ctx.fillStyle = '#FFFFFF';
+      // Text using AI-specified color
+      ctx.fillStyle = thumbnailDesign.textColor;
       ctx.fillText('₿ Crypto B', 1220, 680);
 
       // Save thumbnail
@@ -1012,10 +1069,29 @@ export async function generateThumbnail(
       return thumbnailPath;
     } catch (canvasError) {
       console.warn('Canvas not available, using Sharp fallback:', canvasError);
-      // Fallback to Sharp for simple thumbnail
+      // Fallback to Sharp for simple thumbnail with AI design
       const sharp = await import('sharp');
       
-      // Create a simple gradient thumbnail using Sharp
+      // Get AI design (should already be generated above, but generate if not)
+      let design = thumbnailDesign;
+      if (!design) {
+        try {
+          const { generateThumbnailDesign } = await import('./aiService.js');
+          design = await generateThumbnailDesign(script.title, script.topics);
+        } catch (error) {
+          design = {
+            backgroundColor: '#0a0a0a',
+            accentColor: '#F7931A',
+            textColor: '#FFFFFF',
+            layout: 'centered',
+            visualElements: ['gradient', 'glow', 'grid'],
+            emphasis: 'bold',
+            description: 'Default design'
+          };
+        }
+      }
+      
+      // Create a high-quality gradient thumbnail using Sharp with AI design
       // Escape XML entities in title
       const escapeXml = (str: string) => {
         return str
@@ -1026,23 +1102,135 @@ export async function generateThumbnail(
           .replace(/'/g, '&apos;');
       };
       
-      // Use thumbnail title if available, otherwise use regular title
+      // Use thumbnail title (4 words max, AI-generated)
       let titleToUse = script.thumbnailTitle || script.title;
       
-      // Remove quotation marks unless they're actual quotes (e.g., "someone said")
-      const hasQuoteContext = /\b(said|says|announced|stated|declared|quoted|tweeted|posted|wrote|claimed|revealed)\b/i.test(titleToUse);
-      if (!hasQuoteContext) {
-        // Remove decorative quotes (not actual quotes)
-        titleToUse = titleToUse.replace(/^["']|["']$/g, ''); // Remove leading/trailing quotes
-        titleToUse = titleToUse.replace(/\s*["']\s*/g, ' '); // Remove standalone quotes
+      // Ensure it's 4 words max
+      const words = titleToUse.split(/\s+/).filter(w => w.length > 0);
+      if (words.length > 4) {
+        titleToUse = words.slice(0, 4).join(' ');
       }
       
-      const safeTitle = escapeXml(titleToUse.substring(0, 50));
+      // Remove quotation marks unless they're actual quotes
+      const hasQuoteContext = /\b(said|says|announced|stated|declared|quoted|tweeted|posted|wrote|claimed|revealed)\b/i.test(titleToUse);
+      if (!hasQuoteContext) {
+        titleToUse = titleToUse.replace(/^["']|["']$/g, '');
+        titleToUse = titleToUse.replace(/\s*["']\s*/g, ' ');
+      }
       
-      // NEW STYLE SVG: Split background with white text
-      const titleWords = safeTitle.split(' ');
-      const line1 = titleWords.slice(0, Math.ceil(titleWords.length / 2)).join(' ');
-      const line2 = titleWords.slice(Math.ceil(titleWords.length / 2)).join(' ');
+      const safeTitle = escapeXml(titleToUse);
+      
+      // Calculate adaptive font size to ensure all words fit
+      // Estimate text width: approximately 0.6 * fontSize per character (for Arial bold)
+      const estimateTextWidth = (text: string, fontSize: number): number => {
+        // Remove emojis for width estimation (they take less space)
+        const textWithoutEmojis = text.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|₿|🚀|💎|📈|📉|⚡|🔥/gu, '');
+        // Arial bold is approximately 0.6 * fontSize per character
+        return textWithoutEmojis.length * fontSize * 0.6;
+      };
+      
+      const textMaxWidth = 1100; // Full width minus padding
+      let fontSize = 180; // Start with large font
+      const minFontSize = 100; // Minimum font size
+      const maxLines = 3; // Allow up to 3 lines to fit all words
+      
+      // Try to fit the title with adaptive font sizing
+      let titleLines: string[] = [];
+      let fits = false;
+      
+      while (fontSize >= minFontSize && !fits) {
+        // Split title into words (preserving emojis)
+        const parts = titleToUse.split(/\s+/).filter(p => p.length > 0);
+        titleLines = [];
+        let currentLine = parts[0] || '';
+        
+        // Build lines that fit within maxWidth
+        for (let i = 1; i < parts.length; i++) {
+          const testLine = currentLine + ' ' + parts[i];
+          const width = estimateTextWidth(testLine, fontSize);
+          
+          if (width < textMaxWidth && titleLines.length < maxLines - 1) {
+            currentLine = testLine;
+          } else {
+            if (currentLine) {
+              titleLines.push(currentLine);
+            }
+            currentLine = parts[i];
+          }
+        }
+        if (currentLine) {
+          titleLines.push(currentLine);
+        }
+        
+        // Check if all lines fit and we're within maxLines
+        if (titleLines.length <= maxLines) {
+          let allLinesFit = true;
+          for (const line of titleLines) {
+            const width = estimateTextWidth(line, fontSize);
+            if (width > textMaxWidth) {
+              allLinesFit = false;
+              break;
+            }
+          }
+          if (allLinesFit) {
+            fits = true;
+            break;
+          }
+        }
+        
+        // Reduce font size and try again
+        fontSize -= 10;
+      }
+      
+      // If still doesn't fit, use minimum size and ensure all words are included
+      if (!fits) {
+        fontSize = minFontSize;
+        const parts = titleToUse.split(/\s+/).filter(p => p.length > 0);
+        titleLines = [];
+        let currentLine = parts[0] || '';
+        
+        for (let i = 1; i < parts.length; i++) {
+          const testLine = currentLine + ' ' + parts[i];
+          const width = estimateTextWidth(testLine, fontSize);
+          
+          if (width < textMaxWidth) {
+            currentLine = testLine;
+          } else {
+            if (currentLine) {
+              titleLines.push(currentLine);
+            }
+            currentLine = parts[i];
+          }
+        }
+        if (currentLine) {
+          titleLines.push(currentLine);
+        }
+      }
+      
+      // Ensure we have at least one line
+      if (titleLines.length === 0) {
+        titleLines = [titleToUse];
+      }
+      
+      // Escape each line for XML
+      const escapedLines = titleLines.map(line => escapeXml(line));
+      const line1 = escapedLines[0] || '';
+      const line2 = escapedLines[1] || '';
+      const line3 = escapedLines[2] || '';
+      
+      // Calculate line spacing based on font size
+      const lineSpacing = fontSize * 1.2; // 1.2x font size for line height
+      
+      // Calculate vertical position based on number of lines
+      const numLines = titleLines.length;
+      let textY: number;
+      if (numLines === 1) {
+        textY = 360;
+      } else if (numLines === 2) {
+        textY = 320;
+      } else {
+        textY = 280;
+      }
       
       // Get date and time for SVG
       const now = new Date();
@@ -1050,30 +1238,65 @@ export async function generateThumbnail(
       const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
       const dateTimeStr = `${dateStr} • ${timeStr}`;
       
+      // Convert hex to RGB for SVG
+      const hexToRgb = (hex: string) => {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+          r: parseInt(result[1], 16),
+          g: parseInt(result[2], 16),
+          b: parseInt(result[3], 16)
+        } : { r: 10, g: 10, b: 10 };
+      };
+      
+      const bgRgb = hexToRgb(design.backgroundColor);
+      const accentRgb = hexToRgb(design.accentColor);
+      const textRgb = hexToRgb(design.textColor);
+      
+      // Create darker and lighter variants for gradient
+      const darkerBg = `rgb(${Math.max(0, bgRgb.r - 5)}, ${Math.max(0, bgRgb.g - 5)}, ${Math.max(0, bgRgb.b - 5)})`;
+      const lighterBg = `rgb(${Math.min(255, bgRgb.r + 20)}, ${Math.min(255, bgRgb.g + 20)}, ${Math.min(255, bgRgb.b + 20)})`;
+      const accentColorRgb = `rgb(${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b})`;
+      const textColorRgb = `rgb(${textRgb.r}, ${textRgb.g}, ${textRgb.b})`;
+      
       const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0a0a0a;stop-opacity:1" />
-      <stop offset="50%" style="stop-color:#1a1a2e;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#0a0a0a;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:${darkerBg};stop-opacity:1" />
+      <stop offset="50%" style="stop-color:${lighterBg};stop-opacity:1" />
+      <stop offset="100%" style="stop-color:${darkerBg};stop-opacity:1" />
     </linearGradient>
     <radialGradient id="accentGrad" cx="86%" cy="14%">
-      <stop offset="0%" style="stop-color:#F7931A;stop-opacity:0.4" />
-      <stop offset="100%" style="stop-color:#F7931A;stop-opacity:0" />
+      <stop offset="0%" style="stop-color:${accentColorRgb};stop-opacity:0.5" />
+      <stop offset="50%" style="stop-color:${accentColorRgb};stop-opacity:0.2" />
+      <stop offset="100%" style="stop-color:${accentColorRgb};stop-opacity:0" />
     </radialGradient>
+    ${design.visualElements.includes('glow') ? `
+    <radialGradient id="glowGrad" cx="50%" cy="50%">
+      <stop offset="0%" style="stop-color:${accentColorRgb};stop-opacity:0.15" />
+      <stop offset="100%" style="stop-color:${accentColorRgb};stop-opacity:0" />
+    </radialGradient>
+    ` : ''}
   </defs>
   <rect width="1280" height="720" fill="url(#bgGrad)"/>
-  <ellipse cx="1100" cy="100" rx="300" ry="300" fill="url(#accentGrad)"/>
-  <rect x="50" y="50" width="200" height="65" rx="10" fill="#F7931A"/>
-  <text x="150" y="95.5" font-family="Arial, sans-serif" font-size="34" font-weight="bold" fill="#FFFFFF" text-anchor="middle" dominant-baseline="middle">LATEST</text>
-  <text x="640" y="320" font-family="Arial, sans-serif" font-size="90" font-weight="bold" fill="#FFFFFF" text-anchor="middle" stroke="#000000" stroke-width="3">
+  <ellipse cx="1100" cy="100" rx="350" ry="350" fill="url(#accentGrad)"/>
+  ${design.visualElements.includes('glow') ? `<ellipse cx="640" cy="360" rx="400" ry="400" fill="url(#glowGrad)"/>` : ''}
+  ${design.visualElements.includes('grid') ? `
+  <g opacity="0.06">
+    ${Array.from({length: 26}, (_, i) => `<line x1="${i * 50}" y1="0" x2="${i * 50}" y2="720" stroke="${accentColorRgb}" stroke-width="1"/>`).join('')}
+    ${Array.from({length: 15}, (_, i) => `<line x1="0" y1="${i * 50}" x2="1280" y2="${i * 50}" stroke="${accentColorRgb}" stroke-width="1"/>`).join('')}
+  </g>
+  ` : ''}
+  <rect x="50" y="50" width="200" height="65" rx="10" fill="${accentColorRgb}"/>
+  <text x="150" y="95.5" font-family="Arial, sans-serif" font-size="34" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" dominant-baseline="middle">LATEST</text>
+  <text x="640" y="${textY}" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" stroke="#000000" stroke-width="3">
     <tspan x="640" dy="0">${line1}</tspan>
-    <tspan x="640" dy="110">${line2 || ''}</tspan>
+    ${line2 ? `<tspan x="640" dy="${lineSpacing}">${line2}</tspan>` : ''}
+    ${line3 ? `<tspan x="640" dy="${lineSpacing}">${line3}</tspan>` : ''}
   </text>
-  <rect x="50" y="625" width="260" height="45" rx="8" fill="rgba(0,0,0,0.8)" stroke="#F7931A" stroke-width="2"/>
-  <text x="180" y="652.5" font-family="Arial, sans-serif" font-size="20" font-weight="bold" fill="#FFFFFF" text-anchor="middle" dominant-baseline="middle">${escapeXml(dateTimeStr)}</text>
-  <text x="1220" y="680" font-family="Arial, sans-serif" font-size="60" font-weight="bold" fill="#FFFFFF" text-anchor="end" stroke="#000000" stroke-width="3">₿ Crypto B</text>
+  <rect x="50" y="625" width="260" height="45" rx="8" fill="rgba(0,0,0,0.8)" stroke="${accentColorRgb}" stroke-width="2"/>
+  <text x="180" y="652.5" font-family="Arial, sans-serif" font-size="20" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" dominant-baseline="middle">${escapeXml(dateTimeStr)}</text>
+  <text x="1220" y="680" font-family="Arial, sans-serif" font-size="60" font-weight="bold" fill="${textColorRgb}" text-anchor="end" stroke="#000000" stroke-width="3">₿ Crypto B</text>
 </svg>`;
       
       const sharpModule = await import('sharp');
@@ -1099,20 +1322,20 @@ function wrapText(
   // Set font size for accurate measurement
   ctx.font = `bold ${fontSize}px Arial`;
   
-  // Remove emojis for measurement (they can cause issues)
-  const textWithoutEmojis = text.replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim();
-  const words = textWithoutEmojis.split(' ').filter(w => w.length > 0);
+  // Split by spaces to preserve emojis (they're part of words)
+  const parts = text.split(/\s+/).filter(p => p.length > 0);
   
-  if (words.length === 0) {
-    return [text]; // Return original if no words after emoji removal
+  if (parts.length === 0) {
+    return [text]; // Return original if empty
   }
   
   const lines: string[] = [];
-  let currentLine = words[0];
-
-  for (let i = 1; i < words.length; i++) {
-    const word = words[i];
-    const testLine = currentLine + ' ' + word;
+  let currentLine = parts[0];
+  
+  for (let i = 1; i < parts.length; i++) {
+    const part = parts[i];
+    const testLine = currentLine + ' ' + part;
+    // Measure with emojis included (Canvas handles them)
     const width = ctx.measureText(testLine).width;
     if (width < maxWidth) {
       currentLine = testLine;
@@ -1120,21 +1343,20 @@ function wrapText(
       if (currentLine) {
         lines.push(currentLine);
       }
-      currentLine = word;
+      currentLine = part;
     }
   }
   if (currentLine) {
     lines.push(currentLine);
   }
   
-  // Allow up to 3 lines if needed, but prefer 2
+  // If we have more than 3 lines, try to redistribute
   if (lines.length > 3) {
     // Try to intelligently split into 3 lines
-    const allWords = textWithoutEmojis.split(' ').filter(w => w.length > 0);
-    const wordsPerLine = Math.ceil(allWords.length / 3);
-    const line1 = allWords.slice(0, wordsPerLine).join(' ');
-    const line2 = allWords.slice(wordsPerLine, wordsPerLine * 2).join(' ');
-    const line3 = allWords.slice(wordsPerLine * 2).join(' ');
+    const wordsPerLine = Math.ceil(parts.length / 3);
+    const line1 = parts.slice(0, wordsPerLine).join(' ');
+    const line2 = parts.slice(wordsPerLine, wordsPerLine * 2).join(' ');
+    const line3 = parts.slice(wordsPerLine * 2).join(' ');
     
     // Check if all lines fit within maxWidth
     ctx.font = `bold ${fontSize}px Arial`;
@@ -1144,42 +1366,10 @@ function wrapText(
     
     if (line1Width < maxWidth && line2Width < maxWidth && line3Width < maxWidth) {
       return [line1, line2, line3];
-    } else {
-      // Fall back to 2 lines
-      const midPoint = Math.ceil(allWords.length / 2);
-      const line1Two = allWords.slice(0, midPoint).join(' ');
-      const line2Two = allWords.slice(midPoint).join(' ');
-      
-      // Truncate if needed
-      let finalLine1 = line1Two;
-      let finalLine2 = line2Two;
-      
-      if (ctx.measureText(finalLine1).width > maxWidth) {
-        while (ctx.measureText(finalLine1).width > maxWidth && finalLine1.length > 0) {
-          finalLine1 = finalLine1.substring(0, finalLine1.length - 1);
-        }
-      }
-      
-      if (ctx.measureText(finalLine2).width > maxWidth) {
-        while (ctx.measureText(finalLine2).width > maxWidth && finalLine2.length > 0) {
-          finalLine2 = finalLine2.substring(0, finalLine2.length - 1);
-        }
-        if (line2Two.length > finalLine2.length) {
-          finalLine2 += '...';
-        }
-      }
-      
-      return [finalLine1, finalLine2];
     }
   }
   
-  // Ensure all lines fit within maxWidth
-  return lines.map(line => {
-    let adjustedLine = line;
-    while (ctx.measureText(adjustedLine).width > maxWidth && adjustedLine.length > 0) {
-      adjustedLine = adjustedLine.substring(0, adjustedLine.length - 1);
-    }
-    return adjustedLine + (line.length > adjustedLine.length ? '...' : '');
-  });
+  // Ensure all lines fit within maxWidth (but don't truncate - let adaptive sizing handle it)
+  return lines;
 }
 
