@@ -668,17 +668,17 @@ async function createAvatarImage(outputDir: string): Promise<string> {
       // Shadow
       ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
       ctx.font = 'bold 130px Arial';
-      ctx.fillText('CB', centerX + 3, centerY + 3);
+      ctx.fillText('CB', centerX + 3, centerY + 25);
       
       // Outline
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 4;
-      ctx.strokeText('CB', centerX, centerY);
+      ctx.strokeText('CB', centerX, centerY + 22);
       
       // Main text
       ctx.fillStyle = '#000000';
       ctx.font = 'bold 130px Arial';
-      ctx.fillText('CB', centerX, centerY);
+      ctx.fillText('CB', centerX, centerY + 22);
 
       // MATCH THUMBNAIL STYLE: "Crypto B" branding - simple white text (matching thumbnail)
       ctx.fillStyle = '#FFFFFF';
@@ -747,7 +747,7 @@ async function createAvatarImage(outputDir: string): Promise<string> {
   <ellipse cx="640" cy="300" rx="200" ry="200" fill="url(#glowGrad)"/>
   <circle cx="640" cy="300" r="160" fill="url(#avatarGrad)" filter="url(#glow)"/>
   <circle cx="640" cy="300" r="150" fill="url(#avatarGrad)"/>
-  <text x="640" y="320" font-family="Arial, sans-serif" font-size="130" font-weight="bold" fill="#000000" text-anchor="middle" stroke="#ffffff" stroke-width="2">CB</text>
+  <text x="640" y="342" font-family="Arial, sans-serif" font-size="130" font-weight="bold" fill="#000000" text-anchor="middle" stroke="#ffffff" stroke-width="2">CB</text>
   <text x="640" y="680" font-family="Arial, sans-serif" font-size="60" font-weight="bold" fill="#FFFFFF" text-anchor="middle" stroke="#000000" stroke-width="3">₿ Crypto B</text>
 </svg>`;
       
@@ -957,7 +957,7 @@ export async function generateThumbnail(
       ctx.font = 'bold 20px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(dateTimeStr, dateBadgeX + (dateBadgeWidth / 2), dateBadgeY + (dateBadgeHeight / 2));
+      ctx.fillText(dateTimeStr, dateBadgeX + (dateBadgeWidth / 2), dateBadgeY + (dateBadgeHeight / 2) + 5);
 
       // PROVEN STYLE: "LATEST" badge - simple and clean
       const drawBadge = (x: number, y: number, width: number, height: number, radius: number) => {
@@ -988,7 +988,7 @@ export async function generateThumbnail(
       ctx.font = 'bold 34px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('LATEST', badgeX + (badgeWidth / 2), badgeY + (badgeHeight / 2));
+      ctx.fillText('LATEST', badgeX + (badgeWidth / 2), badgeY + (badgeHeight / 2) + 13);
 
       // PROVEN STYLE: "Crypto B" branding - simple white text
       ctx.fillStyle = '#FFFFFF';
@@ -1066,13 +1066,13 @@ export async function generateThumbnail(
   <rect width="1280" height="720" fill="url(#bgGrad)"/>
   <ellipse cx="1100" cy="100" rx="300" ry="300" fill="url(#accentGrad)"/>
   <rect x="50" y="50" width="200" height="65" rx="10" fill="#F7931A"/>
-  <text x="150" y="82.5" font-family="Arial, sans-serif" font-size="34" font-weight="bold" fill="#FFFFFF" text-anchor="middle" dominant-baseline="middle">LATEST</text>
+  <text x="150" y="95.5" font-family="Arial, sans-serif" font-size="34" font-weight="bold" fill="#FFFFFF" text-anchor="middle" dominant-baseline="middle">LATEST</text>
   <text x="640" y="320" font-family="Arial, sans-serif" font-size="90" font-weight="bold" fill="#FFFFFF" text-anchor="middle" stroke="#000000" stroke-width="3">
     <tspan x="640" dy="0">${line1}</tspan>
     <tspan x="640" dy="110">${line2 || ''}</tspan>
   </text>
   <rect x="50" y="625" width="260" height="45" rx="8" fill="rgba(0,0,0,0.8)" stroke="#F7931A" stroke-width="2"/>
-  <text x="180" y="647.5" font-family="Arial, sans-serif" font-size="20" font-weight="bold" fill="#FFFFFF" text-anchor="middle" dominant-baseline="middle">${escapeXml(dateTimeStr)}</text>
+  <text x="180" y="652.5" font-family="Arial, sans-serif" font-size="20" font-weight="bold" fill="#FFFFFF" text-anchor="middle" dominant-baseline="middle">${escapeXml(dateTimeStr)}</text>
   <text x="1220" y="680" font-family="Arial, sans-serif" font-size="60" font-weight="bold" fill="#FFFFFF" text-anchor="end" stroke="#000000" stroke-width="3">₿ Crypto B</text>
 </svg>`;
       
