@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -26,9 +27,11 @@ export async function generateVideoWithAvatar(
     // Generate audio using OpenAI TTS
     const audioPath = await generateAudio(script.script, outputDir);
 
-    // For now, we'll create a simple video with static avatar image
-    // In production, you'd use a more sophisticated video generation tool
-    const videoPath = await createVideoWithStaticAvatar(audioPath, outputDir);
+    // Generate word-level timestamps using Whisper
+    const subtitlePath = await generateSubtitlesWithTimestamps(audioPath, script.script, outputDir);
+
+    // Create video with captions
+    const videoPath = await createVideoWithStaticAvatar(audioPath, subtitlePath, outputDir);
 
     return videoPath;
   } catch (error) {
@@ -59,8 +62,228 @@ async function generateAudio(script: string, outputDir: string): Promise<string>
   }
 }
 
+async function generateSubtitlesWithTimestamps(
+  audioPath: string,
+  script: string,
+  outputDir: string
+): Promise<string> {
+  try {
+    const subtitlePath = path.join(outputDir, `subtitles_${Date.now()}.ass`);
+    
+    // Use OpenAI Whisper to get word-level timestamps
+    const openai = getOpenAIClient();
+    
+    // Read file as Buffer and create File object
+    // OpenAI SDK in Node.js accepts File objects created from Buffer
+    const audioBuffer = await fs.readFile(audioPath);
+    
+    // Create File object (available in Node.js 18+)
+    // If File is not available, we'll use a polyfill approach
+    let audioFile: any;
+    if (typeof File !== 'undefined') {
+      audioFile = new File([audioBuffer], path.basename(audioPath), { type: 'audio/mpeg' });
+    } else {
+      // Fallback: create a file-like object
+      audioFile = {
+        name: path.basename(audioPath),
+        type: 'audio/mpeg',
+        stream: () => {
+          const { Readable } = require('stream');
+          return Readable.from([audioBuffer]);
+        },
+        arrayBuffer: async () => audioBuffer.buffer,
+        text: async () => '',
+        size: audioBuffer.length
+      };
+    }
+    
+    const transcription = await openai.audio.transcriptions.create({
+      file: audioFile,
+      model: 'whisper-1',
+      response_format: 'verbose_json',
+      timestamp_granularities: ['word']
+    });
+
+    // Create ASS subtitle file with word-by-word highlighting
+    const assContent = generateASSFile(transcription, script);
+    await fs.writeFile(subtitlePath, assContent);
+
+    return subtitlePath;
+  } catch (error) {
+    console.warn('Error generating subtitles with Whisper, using fallback:', error);
+    // Fallback: create simple subtitles without word-level timing
+    return await generateSimpleSubtitles(script, outputDir);
+  }
+}
+
+async function generateSimpleSubtitles(
+  script: string,
+  outputDir: string
+): Promise<string> {
+  const subtitlePath = path.join(outputDir, `subtitles_${Date.now()}.ass`);
+  
+  // Estimate timing: ~150 words per minute
+  const words = script.split(/\s+/);
+  const wordsPerMinute = 150;
+  const secondsPerWord = 60 / wordsPerMinute;
+  
+  let currentTime = 0;
+  const lines: string[] = [];
+  
+  // Group words into lines (max 8 words per line)
+  for (let i = 0; i < words.length; i += 8) {
+    const lineWords = words.slice(i, i + 8);
+    const startTime = currentTime;
+    const endTime = currentTime + (lineWords.length * secondsPerWord);
+    
+    lines.push(formatASSLine(startTime, endTime, lineWords.join(' '), i));
+    currentTime = endTime;
+  }
+  
+  const assContent = generateASSHeader() + lines.join('\n');
+  await fs.writeFile(subtitlePath, assContent);
+  
+  return subtitlePath;
+}
+
+function generateASSFile(transcription: any, script: string): string {
+  const header = generateASSHeader();
+  const lines: string[] = [];
+  
+  if (transcription.words && Array.isArray(transcription.words)) {
+    // Use word-level timestamps from Whisper
+    let currentLine: string[] = [];
+    let lineStartTime = transcription.words[0]?.start || 0;
+    let lineEndTime = lineStartTime;
+    let wordIndices: number[] = [];
+    
+    transcription.words.forEach((word: any, index: number) => {
+      const wordText = word.word.trim();
+      if (!wordText) return;
+      
+      currentLine.push(wordText);
+      wordIndices.push(index);
+      lineEndTime = word.end || lineEndTime;
+      
+      // Create a new line every 8 words or when we hit punctuation
+      if (currentLine.length >= 8 || wordText.match(/[.!?]$/)) {
+        const lineText = currentLine.join(' ');
+        const lineWords = wordIndices.map(i => transcription.words[i]);
+        lines.push(formatASSLineWithWords(
+          lineStartTime,
+          lineEndTime,
+          lineText,
+          lineWords
+        ));
+        currentLine = [];
+        wordIndices = [];
+        lineStartTime = word.end || lineEndTime;
+      }
+    });
+    
+    // Add remaining words
+    if (currentLine.length > 0) {
+      const lineWords = wordIndices.map(i => transcription.words[i]);
+      lines.push(formatASSLineWithWords(
+        lineStartTime,
+        lineEndTime,
+        currentLine.join(' '),
+        lineWords
+      ));
+    }
+  } else {
+    // Fallback: create simple subtitles without word-level timing
+    const words = script.split(/\s+/);
+    const wordsPerMinute = 150;
+    const secondsPerWord = 60 / wordsPerMinute;
+    let currentTime = 0;
+    
+    for (let i = 0; i < words.length; i += 8) {
+      const lineWords = words.slice(i, i + 8);
+      const startTime = currentTime;
+      const endTime = currentTime + (lineWords.length * secondsPerWord);
+      lines.push(formatASSLine(startTime, endTime, lineWords.join(' '), i));
+      currentTime = endTime;
+    }
+  }
+  
+  return header + lines.join('\n');
+}
+
+function generateASSHeader(): string {
+  return `[Script Info]
+Title: Crypto B Video Subtitles
+ScriptType: v4.00+
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&Hffffff,&Hffffff,&H000000,&H80000000,1,0,0,0,100,100,0,0,1,3,0,2,10,10,60,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+}
+
+function formatASSLine(start: number, end: number, text: string, wordIndex: number): string {
+  const startTime = formatASSTime(start);
+  const endTime = formatASSTime(end);
+  const escapedText = text.replace(/\n/g, '\\N').replace(/,/g, '\\,');
+  return `Dialogue: 0,${startTime},${endTime},Default,,0,0,0,,${escapedText}`;
+}
+
+function formatASSLineWithWords(start: number, end: number, lineText: string, words: any[]): string {
+  const startTime = formatASSTime(start);
+  const endTime = formatASSTime(end);
+  
+  // Create word-by-word highlighting using ASS karaoke tags
+  // ASS karaoke format: {\k<duration>} highlights text for duration in centiseconds
+  let highlightedText = '';
+  let cumulativeTime = 0;
+  
+  words.forEach((word, index) => {
+    const wordStart = word.start || (start + cumulativeTime);
+    const wordEnd = word.end || (wordStart + 0.5);
+    const wordText = word.word.trim();
+    const wordDuration = (wordEnd - wordStart) * 100; // Convert to centiseconds
+    
+    // Calculate pause before this word
+    let pauseDuration = 0;
+    if (index > 0) {
+      const prevWordEnd = words[index - 1].end || wordStart;
+      pauseDuration = (wordStart - prevWordEnd) * 100;
+    }
+    
+    // Add pause if needed
+    if (pauseDuration > 10) {
+      highlightedText += `{\\k${Math.round(pauseDuration)}} `;
+    } else if (index > 0) {
+      highlightedText += ' ';
+    }
+    
+    // Highlight current word in green, then switch back to white
+    highlightedText += `{\\k${Math.round(wordDuration)}\\c&H00FF88&}${wordText}{\\c&HFFFFFF&}`;
+    
+    cumulativeTime = wordEnd - start;
+  });
+  
+  // Escape special characters for ASS format
+  highlightedText = highlightedText.replace(/\n/g, '\\N');
+  
+  return `Dialogue: 0,${startTime},${endTime},Default,,0,0,0,,${highlightedText}`;
+}
+
+function formatASSTime(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  const centiseconds = Math.floor((seconds % 1) * 100);
+  
+  return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`;
+}
+
 async function createVideoWithStaticAvatar(
   audioPath: string,
+  subtitlePath: string,
   outputDir: string
 ): Promise<string> {
   const videoPath = path.join(outputDir, `video_${Date.now()}.mp4`);
@@ -79,21 +302,25 @@ async function createVideoWithStaticAvatar(
     console.warn('Could not get audio duration, using default:', error);
   }
   
-  // Create video using FFmpeg with enhanced quality
-  // This creates a video with the avatar image, animated background, and audio
-  const ffmpegCommand = `ffmpeg -y -loop 1 -i "${avatarPath}" -i "${audioPath}" ` +
+  // Create video using FFmpeg with subtitles
+  // Use subtitles filter to overlay captions at the bottom with word-by-word highlighting
+  // Escape paths properly for shell
+  const escapedSubtitlePath = subtitlePath.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'");
+  const escapedAvatarPath = avatarPath.replace(/\\/g, '\\\\').replace(/:/g, '\\:');
+  const escapedAudioPath = audioPath.replace(/\\/g, '\\\\').replace(/:/g, '\\:');
+  const escapedVideoPath = videoPath.replace(/\\/g, '\\\\').replace(/:/g, '\\:');
+  
+  const ffmpegCommand = `ffmpeg -y -loop 1 -i "${escapedAvatarPath}" -i "${escapedAudioPath}" ` +
+    `-vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=0x0a0a1a,subtitles='${escapedSubtitlePath}':force_style='Alignment=2,MarginV=40,Outline=3,Shadow=2,FontSize=52,Bold=1,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BackColour=&H80000000',format=yuv420p" ` +
     `-c:v libx264 -preset slow -crf 18 -tune stillimage -c:a aac -b:a 256k -ar 48000 -pix_fmt yuv420p ` +
-    `-shortest -vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=0x0a0a1a,format=yuv420p" ` +
-    `"${videoPath}"`;
+    `-shortest "${escapedVideoPath}"`;
   
   try {
     await execAsync(ffmpegCommand);
-    console.log(`Video created successfully: ${videoPath}`);
+    console.log(`Video created successfully with captions: ${videoPath}`);
     return videoPath;
   } catch (error) {
     console.error('FFmpeg error:', error);
-    // If FFmpeg fails, return the audio path as fallback
-    // In production, you'd want better error handling
     throw new Error('Failed to create video. Make sure FFmpeg is installed: https://ffmpeg.org/download.html');
   }
 }
