@@ -1,8 +1,10 @@
 import { scrapeCryptoNews } from './newsScraper.js';
-import { distillTrendingTopics, generateVideoScript } from './aiService.js';
+import { distillTrendingTopics, generateVideoScript, TrendingTopic } from './aiService.js';
 import { generateVideoWithAvatar, generateThumbnail } from './videoGenerator.js';
+import { updateDescriptionWithTimestamps } from './timestampUpdater.js';
 import { uploadToYouTube } from './youtubeUploader.js';
 import { VideoScript } from './aiService.js';
+import { topicHistory } from './topicHistory.js';
 import path from 'path';
 
 export interface VideoCreationResult {
@@ -18,7 +20,7 @@ export interface VideoCreationResult {
 
 export interface JobProgress {
   jobId: string;
-  status: 'pending' | 'scraping' | 'analyzing' | 'generating_script' | 'creating_video' | 'creating_thumbnail' | 'ready' | 'uploading' | 'completed' | 'error';
+  status: 'pending' | 'scraping' | 'analyzing' | 'generating_script' | 'creating_video' | 'updating_timestamps' | 'creating_thumbnail' | 'ready' | 'uploading' | 'completed' | 'error';
   progress: number; // 0-100
   message: string;
   result?: VideoCreationResult;
@@ -50,12 +52,16 @@ export async function createVideo(jobId: string): Promise<VideoCreationResult> {
 
     // Step 2: Distill top trending topics
     updateProgress(jobId, 'analyzing', 30, 'Analyzing and distilling trending topics...');
-    const topics = await distillTrendingTopics(articles);
-    updateProgress(jobId, 'analyzing', 40, `Identified ${topics.length} trending topics`);
+    const allTopics = await distillTrendingTopics(articles);
+    
+    // Step 2.5: Filter out recently covered topics (unless significant update)
+    updateProgress(jobId, 'analyzing', 35, 'Filtering recently covered topics...');
+    const filteredTopics = filterRecentTopics(allTopics);
+    updateProgress(jobId, 'analyzing', 40, `Identified ${filteredTopics.length} trending topics (filtered ${allTopics.length - filteredTopics.length} recently covered)`);
 
     // Step 3: Generate video script
     updateProgress(jobId, 'generating_script', 50, 'Generating video script...');
-    const script = await generateVideoScript(topics);
+    const script = await generateVideoScript(filteredTopics, allTopics);
     updateProgress(jobId, 'generating_script', 60, `Script generated: "${script.title}"`);
 
     // Step 4: Generate video with avatar
@@ -63,6 +69,12 @@ export async function createVideo(jobId: string): Promise<VideoCreationResult> {
     const videoPath = await generateVideoWithAvatar(script);
     const videoFileName = path.basename(videoPath);
     updateProgress(jobId, 'creating_video', 80, 'Video created successfully');
+    
+    // Step 4.5: Update description with accurate timestamps
+    updateProgress(jobId, 'updating_timestamps', 82, 'Calculating accurate timestamps...');
+    const updatedScript = await updateDescriptionWithTimestamps(script, videoPath);
+    script.description = updatedScript.description;
+    updateProgress(jobId, 'updating_timestamps', 85, 'Timestamps updated');
 
     // Step 5: Generate thumbnail
     updateProgress(jobId, 'creating_thumbnail', 90, 'Generating thumbnail...');
@@ -80,6 +92,9 @@ export async function createVideo(jobId: string): Promise<VideoCreationResult> {
     };
 
     updateProgress(jobId, 'ready', 100, 'Video ready for preview and approval');
+    
+    // Store topics in history for future filtering
+    topicHistory.addTopics(filteredTopics, jobId);
     
     const finalProgress = jobStore.get(jobId);
     if (finalProgress) {
@@ -153,4 +168,110 @@ export async function approveAndUpload(jobId: string): Promise<VideoCreationResu
 
 export function getJobProgress(jobId: string): JobProgress | undefined {
   return jobStore.get(jobId);
+}
+
+/**
+ * Filter out recently covered topics unless they have significant updates
+ */
+function filterRecentTopics(topics: TrendingTopic[]): TrendingTopic[] {
+  const filtered: TrendingTopic[] = [];
+  const recentTopics = topicHistory.getRecentTopics(8); // Last 8 hours (2 videos)
+  
+  topics.forEach(topic => {
+    const wasRecentlyCovered = topicHistory.wasRecentlyCovered(topic.title, 8);
+    
+    if (!wasRecentlyCovered) {
+      // New topic - always include
+      filtered.push(topic);
+      console.log(`✅ Including new topic: "${topic.title}"`);
+    } else {
+      // Recently covered - check for significant updates
+      const recentEntry = topicHistory.getRecentEntry(topic.title);
+      const hasSignificantUpdate = checkForSignificantUpdate(topic, recentEntry);
+      
+      if (hasSignificantUpdate) {
+        // Has significant update - include but mark for different angle
+        topic.isUpdate = true;
+        filtered.push(topic);
+        console.log(`🔄 Including updated topic: "${topic.title}" (has significant update)`);
+      } else {
+        // No significant update - skip
+        console.log(`⏭️ Skipping recently covered topic: "${topic.title}" (no significant update)`);
+      }
+    }
+  });
+  
+  // Ensure we have at least 2 topics (fallback: include top topics even if recently covered)
+  if (filtered.length < 2 && topics.length > 0) {
+    const topTopics = topics.slice(0, 2);
+    topTopics.forEach(topic => {
+      if (!filtered.find(t => t.title === topic.title)) {
+        topic.isUpdate = true; // Mark as update to vary narrative
+        filtered.push(topic);
+        console.log(`⚠️ Including topic due to low count: "${topic.title}"`);
+      }
+    });
+  }
+  
+  return filtered.slice(0, 4); // Max 4 topics
+}
+
+/**
+ * Check if a topic has significant updates compared to recent coverage
+ */
+function checkForSignificantUpdate(
+  currentTopic: TrendingTopic,
+  recentEntry: { topicTitle: string; topicSummary: string; timestamp: Date } | null
+): boolean {
+  if (!recentEntry) {
+    return false; // No recent entry to compare
+  }
+  
+  // Check for significant changes in summary (new developments mentioned)
+  const currentSummary = currentTopic.summary.toLowerCase();
+  const recentSummary = recentEntry.topicSummary.toLowerCase();
+  
+  // Extract key terms/phrases that indicate updates
+  const updateIndicators = [
+    'new', 'update', 'latest', 'breaking', 'announce', 'launch', 'release',
+    'surge', 'drop', 'crash', 'rally', 'spike', 'plunge',
+    'milestone', 'record', 'all-time', 'high', 'low',
+    'partnership', 'deal', 'acquisition', 'merger',
+    'regulation', 'approval', 'rejection', 'ban'
+  ];
+  
+  // Check if current summary has new update indicators not in recent
+  const hasNewUpdates = updateIndicators.some(indicator => {
+    const inCurrent = currentSummary.includes(indicator);
+    const inRecent = recentSummary.includes(indicator);
+    return inCurrent && !inRecent;
+  });
+  
+  // Check for significant text differences (new information)
+  const summarySimilarity = calculateSimilarity(currentSummary, recentSummary);
+  const hasNewInfo = summarySimilarity < 0.7; // Less than 70% similar = new info
+  
+  // Check importance score (higher importance might indicate significant development)
+  const importanceIncrease = currentTopic.importance >= 8; // High importance topics
+  
+  const hasUpdate = hasNewUpdates || hasNewInfo || importanceIncrease;
+  
+  if (hasUpdate) {
+    console.log(`   📊 Update detected: newUpdates=${hasNewUpdates}, newInfo=${hasNewInfo}, highImportance=${importanceIncrease}`);
+  }
+  
+  return hasUpdate;
+}
+
+/**
+ * Calculate similarity between two strings (simple Jaccard similarity)
+ */
+function calculateSimilarity(str1: string, str2: string): number {
+  const words1 = new Set(str1.split(/\s+/).filter(w => w.length > 3));
+  const words2 = new Set(str2.split(/\s+/).filter(w => w.length > 3));
+  
+  const intersection = [...words1].filter(w => words2.has(w));
+  const union = new Set([...words1, ...words2]);
+  
+  return union.size > 0 ? intersection.length / union.size : 0;
 }

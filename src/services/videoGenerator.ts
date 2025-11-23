@@ -297,6 +297,18 @@ function formatASSTime(seconds: number): string {
   return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`;
 }
 
+export async function getVideoDuration(videoPath: string): Promise<number> {
+  try {
+    const { stdout: durationOutput } = await execAsync(
+      `ffprobe -i "${videoPath}" -show_entries format=duration -v quiet -of csv="p=0"`
+    );
+    return parseFloat(durationOutput.trim()) || 0;
+  } catch (error) {
+    console.warn('Could not get video duration:', error);
+    return 0;
+  }
+}
+
 async function createVideoWithStaticAvatar(
   audioPath: string,
   subtitlePath: string,

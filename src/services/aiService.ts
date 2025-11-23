@@ -6,6 +6,8 @@ export interface TrendingTopic {
   summary: string;
   importance: number;
   source: string;
+  url?: string; // URL to the source article
+  isUpdate?: boolean; // True if this topic was recently covered and has updates
 }
 
 export interface VideoScript {
@@ -90,7 +92,71 @@ Only return the JSON object, no other text.`;
       .sort((a: TrendingTopic, b: TrendingTopic) => b.importance - a.importance)
       .slice(0, 4);
 
-    return sortedTopics;
+    // Match topics with articles to get URLs
+    // Improved matching: try multiple strategies to find the best match
+    const topicsWithUrls = sortedTopics.map((topic: TrendingTopic) => {
+      // Strategy 1: Exact source match first
+      let matchingArticle = articles.find(article => 
+        article.source.toLowerCase() === topic.source.toLowerCase()
+      );
+      
+      // Strategy 2: Title keyword matching (more flexible)
+      if (!matchingArticle) {
+        const topicKeywords = topic.title.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+        matchingArticle = articles.find(article => {
+          const articleTitleLower = article.title.toLowerCase();
+          // Check if at least 2 keywords from topic title appear in article title
+          const matchingKeywords = topicKeywords.filter(keyword => 
+            articleTitleLower.includes(keyword)
+          );
+          return matchingKeywords.length >= 2;
+        });
+      }
+      
+      // Strategy 3: Partial title matching (fallback)
+      if (!matchingArticle) {
+        matchingArticle = articles.find(article => {
+          const articleTitleLower = article.title.toLowerCase();
+          const topicTitleLower = topic.title.toLowerCase();
+          // Check for significant word overlap
+          const articleWords = new Set(articleTitleLower.split(/\s+/).filter(w => w.length > 3));
+          const topicWords = new Set(topicTitleLower.split(/\s+/).filter(w => w.length > 3));
+          const overlap = [...topicWords].filter(w => articleWords.has(w));
+          return overlap.length >= 2;
+        });
+      }
+      
+      // Strategy 4: Source-based matching (if source name matches)
+      if (!matchingArticle && topic.source) {
+        matchingArticle = articles
+          .filter(a => a.source.toLowerCase().includes(topic.source.toLowerCase()) || 
+                      topic.source.toLowerCase().includes(a.source.toLowerCase()))
+          .find(article => {
+            // Check if topic summary mentions keywords from article
+            const articleKeywords = article.title.toLowerCase().split(/\s+/).filter(w => w.length > 4);
+            const summaryLower = topic.summary.toLowerCase();
+            return articleKeywords.some(keyword => summaryLower.includes(keyword));
+          });
+      }
+      
+      if (matchingArticle) {
+        console.log(`✅ Matched topic "${topic.title}" with article "${matchingArticle.title}"`);
+        return { ...topic, url: matchingArticle.url };
+      } else {
+        console.warn(`⚠️ Could not find URL for topic: "${topic.title}" (source: ${topic.source})`);
+        // Try to get any article from the same source as fallback
+        const sourceArticle = articles.find(a => 
+          a.source.toLowerCase() === topic.source.toLowerCase()
+        );
+        if (sourceArticle) {
+          console.log(`📎 Using source article as fallback: ${sourceArticle.url}`);
+          return { ...topic, url: sourceArticle.url };
+        }
+      }
+      return topic;
+    });
+
+    return topicsWithUrls;
   } catch (error) {
     console.error('Error distilling topics:', error);
     // Fallback to mock topics
@@ -99,16 +165,51 @@ Only return the JSON object, no other text.`;
 }
 
 export async function generateVideoScript(
-  topics: TrendingTopic[]
+  topics: TrendingTopic[],
+  allTopics?: TrendingTopic[] // All topics before filtering (for context)
 ): Promise<VideoScript> {
   try {
     const topicsText = topics
-      .map((t, i) => `${i + 1}. ${t.title}: ${t.summary}`)
+      .map((t, i) => `${i + 1}. ${t.title}: ${t.summary}${t.url ? ` (Source: ${t.url})` : ''}`)
       .join('\n\n');
+    
+    // Collect all reference URLs for the description
+    let referenceUrls = topics
+      .filter(t => t.url)
+      .map(t => `- ${t.title}: ${t.url}`)
+      .join('\n');
+    
+    // Debug: Log what we found
+    const topicsWithUrls = topics.filter(t => t.url);
+    console.log(`📊 Found ${topicsWithUrls.length} topics with URLs out of ${topics.length} total topics`);
+    if (topicsWithUrls.length > 0) {
+      topicsWithUrls.forEach(t => console.log(`  - ${t.title}: ${t.url}`));
+    }
+
+    // Identify which topics are updates vs new
+    const updateTopics = topics.filter(t => t.isUpdate).map(t => t.title);
+    const newTopics = topics.filter(t => !t.isUpdate).map(t => t.title);
+    
+    let updateContext = '';
+    if (updateTopics.length > 0) {
+      updateContext = `\n\nIMPORTANT - CONTENT VARIATION REQUIREMENT:
+Some of these topics may have been covered in recent videos. To avoid repetition:
+- For topics marked as updates: ${updateTopics.join(', ')}
+  * Use a DIFFERENT angle or perspective than previous coverage
+  * Focus on NEW developments, updates, or changes since last mention
+  * Frame as "Update on..." or "Latest on..." rather than repeating the same story
+  * Provide deeper analysis, different insights, or new context
+  * Avoid repeating the same narrative or facts from previous videos
+  
+- For new topics: ${newTopics.join(', ')}
+  * These are fresh topics - cover them normally with full context
+  
+CRITICAL: If a topic was recently covered, you MUST use a different narrative angle, focus on updates, or provide deeper analysis. Never repeat the same story.`;
+    }
 
     const prompt = `You are "Crypto B", a charismatic crypto influencer creating a YouTube video for young degens. Create an engaging video script based on these trending topics:
 
-${topicsText}
+${topicsText}${updateContext}
 
 Requirements:
 - Target audience: Young crypto degens (18-30, meme-loving, risk-tolerant)
@@ -118,16 +219,23 @@ Requirements:
 - Include: Price movements, market sentiment, potential opportunities
 - Use: Crypto terminology (moon, diamond hands, FUD, alpha, etc.)
 - IMPORTANT: Mention in the intro and/or outro that this news is from the last 4 hours, and that new videos are posted every 4 hours with the latest crypto updates
+- CRITICAL: If covering topics that were mentioned in recent videos, use a DIFFERENT angle, focus on UPDATES, or provide DEEPER analysis. Never repeat the same narrative.
 
 Also generate:
 1. A catchy YouTube title (under 60 characters, clickbait but accurate)
-2. A detailed description (3-4 paragraphs with timestamps) - MUST mention that news is updated every 4 hours and new videos are posted every 4 hours
+2. A detailed description (3-4 paragraphs) that:
+   - MUST mention that news is updated every 4 hours and new videos are posted every 4 hours
+   - Includes accurate timestamps for each topic (format: MM:SS)
+   - Mentions that viewers should check the description for reference links to learn more
+   - Note: Timestamps will be calculated after video generation, so estimate based on script length (approximately 150 words per minute)
 3. Relevant tags (15-20 tags, comma-separated)
+
+IMPORTANT: In the script, mention that viewers should check the description below for reference links to dive deeper into each topic.
 
 Format your response as JSON:
 {
   "title": "Video title",
-  "description": "Full description with timestamps",
+  "description": "Full description with estimated timestamps (will be updated with accurate times)",
   "tags": ["tag1", "tag2", "tag3"],
   "script": "Full script text here"
 }`;
@@ -201,10 +309,30 @@ Return ONLY the short thumbnail title, nothing else.`;
       }
     }
 
+    // Add reference links to description
+    let finalDescription = parsed.description || '';
+    
+    // Always add reference links section if we have any URLs
+    if (referenceUrls && referenceUrls.trim().length > 0) {
+      const linkCount = topics.filter(t => t.url).length;
+      finalDescription += `\n\n📚 REFERENCE LINKS - Check these out for more info on the topics covered:\n\n${referenceUrls}\n\n💡 Want to dive deeper? Click the links above to read the full articles and get all the details!`;
+      console.log(`✅ Added ${linkCount} reference links to description`);
+    } else {
+      console.warn('⚠️ No reference URLs found to add to description');
+      console.warn(`   Topics: ${topics.map(t => t.title).join(', ')}`);
+      console.warn(`   Topics with URLs: ${topics.filter(t => t.url).map(t => `${t.title} (${t.url})`).join(', ')}`);
+      // Still add a note about checking sources
+      finalDescription += `\n\n💡 Want to dive deeper? Check out the sources mentioned in the video (${topics.map(t => t.source).filter((v, i, a) => a.indexOf(v) === i).join(', ')}) for more detailed information on each topic!`;
+    }
+    
+    // Note: Timestamps will be updated with accurate times after video generation
+    // Remove placeholder notes about estimated timestamps - they'll be updated with accurate times
+    finalDescription = finalDescription.replace(/\s*\(estimated[^)]*\)/gi, '');
+
     return {
       title: parsed.title || 'Latest Crypto News',
       thumbnailTitle: thumbnailTitle, // Shorter version for thumbnail
-      description: parsed.description || '',
+      description: finalDescription,
       tags: parsed.tags || [],
       script: parsed.script || '',
       topics
@@ -240,11 +368,16 @@ function getMockTopics(): TrendingTopic[] {
 }
 
 function getMockScript(topics: TrendingTopic[]): VideoScript {
-  return {
-    title: '🚀 CRYPTO IS MOONING! Top 3 Stories You NEED to Know',
-    description: `What's up degens! Crypto B here with the latest alpha. In this video, we're breaking down the top 3 crypto stories from the last 4 hours.
+  const referenceLinks = topics
+    .filter(t => t.url)
+    .map(t => `- ${t.title}: ${t.url}`)
+    .join('\n');
+  
+  let description = `What's up degens! Crypto B here with the latest alpha. In this video, we're breaking down the top 3 crypto stories from the last 4 hours.
 
 📅 NEW VIDEOS EVERY 4 HOURS! We bring you the freshest crypto news around the clock, so you never miss the latest moves in the market.
+
+💡 Want to dive deeper? Check the reference links below for more info on each topic!
 
 0:00 - Intro
 0:30 - ${topics[0]?.title || 'Story 1'}
@@ -252,7 +385,16 @@ function getMockScript(topics: TrendingTopic[]): VideoScript {
 3:00 - ${topics[2]?.title || 'Story 3'}
 4:15 - Outro
 
-Stay tuned for more crypto alpha! Make sure to subscribe and hit the bell so you don't miss our next update in 4 hours!`,
+Stay tuned for more crypto alpha! Make sure to subscribe and hit the bell so you don't miss our next update in 4 hours!`;
+
+  if (referenceLinks) {
+    description += `\n\n📚 REFERENCE LINKS - Check these out for more info on the topics covered:\n\n${referenceLinks}\n\n💡 Want to dive deeper? Click the links above to read the full articles and get all the details!`;
+  }
+
+  return {
+    title: '🚀 CRYPTO IS MOONING! Top 3 Stories You NEED to Know',
+    thumbnailTitle: '🚀 CRYPTO MOONING! Top 3 Stories',
+    description,
     tags: ['crypto', 'bitcoin', 'ethereum', 'defi', 'cryptocurrency', 'trading', 'crypto news'],
     script: `Yo what's up degens! Crypto B here, and we've got some absolutely INSANE crypto news dropping in the last 4 hours. That's right - we're bringing you the freshest alpha every 4 hours, so you're always ahead of the game. If you're not paying attention, you're missing out on some serious moves. Let's dive in!
 
