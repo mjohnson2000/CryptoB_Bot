@@ -5,6 +5,8 @@ import { updateDescriptionWithTimestamps } from './timestampUpdater.js';
 import { uploadToYouTube } from './youtubeUploader.js';
 import { VideoScript } from './aiService.js';
 import { topicHistory } from './topicHistory.js';
+import { getPriceMovements } from './priceData.js';
+import { getNFTUpdates } from './nftData.js';
 import path from 'path';
 
 export interface VideoCreationResult {
@@ -59,9 +61,19 @@ export async function createVideo(jobId: string): Promise<VideoCreationResult> {
     const filteredTopics = filterRecentTopics(allTopics);
     updateProgress(jobId, 'analyzing', 40, `Identified ${filteredTopics.length} trending topics (filtered ${allTopics.length - filteredTopics.length} recently covered)`);
 
+    // Step 2.6: Fetch price movements
+    updateProgress(jobId, 'fetching_prices', 42, 'Fetching price movements...');
+    const priceUpdate = await getPriceMovements();
+    updateProgress(jobId, 'fetching_prices', 44, `Found ${priceUpdate.topWinners.length} winners, ${priceUpdate.topLosers.length} losers`);
+
+    // Step 2.7: Fetch NFT updates
+    updateProgress(jobId, 'fetching_nfts', 46, 'Fetching NFT updates...');
+    const nftUpdate = await getNFTUpdates();
+    updateProgress(jobId, 'fetching_nfts', 48, `Found ${nftUpdate.trendingCollections.length} trending collections`);
+
     // Step 3: Generate video script
     updateProgress(jobId, 'generating_script', 50, 'Generating video script...');
-    const script = await generateVideoScript(filteredTopics, allTopics);
+    const script = await generateVideoScript(filteredTopics, allTopics, priceUpdate, nftUpdate);
     updateProgress(jobId, 'generating_script', 60, `Script generated: "${script.title}"`);
 
     // Step 4: Generate video with avatar

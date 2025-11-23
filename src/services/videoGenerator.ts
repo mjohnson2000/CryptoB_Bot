@@ -30,8 +30,8 @@ export async function generateVideoWithAvatar(
     // Generate word-level timestamps using Whisper
     const subtitlePath = await generateSubtitlesWithTimestamps(audioPath, script.script, outputDir);
 
-    // Create video with captions
-    const videoPath = await createVideoWithStaticAvatar(audioPath, subtitlePath, outputDir);
+    // Create video with captions and on-screen text overlays
+    const videoPath = await createVideoWithStaticAvatar(audioPath, subtitlePath, script, outputDir);
 
     return videoPath;
   } catch (error) {
@@ -146,20 +146,100 @@ async function generateSimpleSubtitles(
   return subtitlePath;
 }
 
+/**
+ * Match Whisper words with original script to add punctuation
+ * This ensures captions have proper punctuation (commas, periods, etc.)
+ */
+function addPunctuationFromScript(whisperWords: any[], script: string): any[] {
+  // Split script into words while preserving punctuation attached to words
+  // This regex splits on spaces but keeps punctuation with words
+  const scriptWords = script.split(/\s+/).filter(w => w.length > 0);
+  
+  // Match Whisper words with script words
+  let scriptIndex = 0;
+  const matchedWords: any[] = [];
+  
+  whisperWords.forEach((whisperWord: any) => {
+    const whisperText = whisperWord.word.toLowerCase().trim().replace(/[^\w]/g, '');
+    if (!whisperText) {
+      matchedWords.push(whisperWord);
+      return;
+    }
+    
+    // Search forward in script for matching word (within next 10 words)
+    let bestMatch: { word: string; index: number; score: number } | null = null;
+    const searchWindow = Math.min(scriptIndex + 10, scriptWords.length);
+    
+    for (let i = scriptIndex; i < searchWindow; i++) {
+      const scriptWord = scriptWords[i];
+      const scriptNormalized = scriptWord.toLowerCase().replace(/[^\w]/g, '');
+      
+      // Calculate match score (exact match = highest score)
+      let score = 0;
+      if (scriptNormalized === whisperText) {
+        score = 100; // Exact match
+      } else if (scriptNormalized.startsWith(whisperText) || whisperText.startsWith(scriptNormalized)) {
+        score = 80; // Prefix match
+      } else if (scriptNormalized.includes(whisperText) || whisperText.includes(scriptNormalized)) {
+        score = 50; // Partial match
+      }
+      
+      if (score > 0 && (!bestMatch || score > bestMatch.score)) {
+        bestMatch = { word: scriptWord, index: i, score };
+      }
+    }
+    
+    if (bestMatch && bestMatch.score >= 50) {
+      // Use script word with punctuation
+      matchedWords.push({
+        ...whisperWord,
+        word: bestMatch.word,
+        originalWord: whisperWord.word
+      });
+      scriptIndex = bestMatch.index + 1;
+    } else {
+      // No good match - keep original word
+      // But preserve any punctuation that Whisper might have included
+      matchedWords.push({
+        ...whisperWord,
+        word: whisperWord.word,
+        originalWord: whisperWord.word
+      });
+    }
+  });
+  
+  return matchedWords;
+}
+
 function generateASSFile(transcription: any, script: string): string {
   const header = generateASSHeader();
   const lines: string[] = [];
   
   if (transcription.words && Array.isArray(transcription.words)) {
-    // Use word-level timestamps from Whisper
+    // Add punctuation from original script
+    const wordsWithPunctuation = addPunctuationFromScript(transcription.words, script);
+    
+    // Use word-level timestamps from Whisper (now with punctuation)
     let currentLine: string[] = [];
-    let lineStartTime = transcription.words[0]?.start || 0;
+    let lineStartTime = wordsWithPunctuation[0]?.start || 0;
     let lineEndTime = lineStartTime;
     let wordIndices: number[] = [];
     
-    transcription.words.forEach((word: any, index: number) => {
-      // Preserve punctuation - don't trim completely, just remove leading/trailing spaces
-      let wordText = word.word;
+    // Store line data before converting to ASS format (so we can modify end times)
+    const lineData: Array<{
+      start: number;
+      end: number;
+      text: string;
+      words: any[];
+    }> = [];
+    
+    // Track active lines to ensure max 3 lines displayed at once
+    const activeLines: Array<{ start: number; end: number; lineIndex: number }> = [];
+    const MAX_LINES = 3;
+    
+    wordsWithPunctuation.forEach((word: any, index: number) => {
+      // Use word with punctuation from script
+      let wordText = word.word || word.originalWord || word.word;
       wordText = wordText.replace(/^\s+|\s+$/g, '');
       if (!wordText) return;
       
@@ -169,33 +249,84 @@ function generateASSFile(transcription: any, script: string): string {
       
       // Create a new line every 8 words or when we hit sentence-ending punctuation
       if (currentLine.length >= 8 || wordText.match(/[.!?]$/)) {
-        // Join words with spaces, but preserve punctuation that's already attached
-      const lineText = currentLine.join(' ').replace(/\s+([.,!?;:])/g, '$1');
-        const lineWords = wordIndices.map(i => transcription.words[i]);
-        lines.push(formatASSLineWithWords(
-          lineStartTime,
-          lineEndTime,
-          lineText,
-          lineWords
-        ));
+        const currentTime = word.end || lineEndTime;
+        
+        // Remove lines that have already ended
+        for (let i = activeLines.length - 1; i >= 0; i--) {
+          if (activeLines[i].end <= currentTime) {
+            activeLines.splice(i, 1);
+          }
+        }
+        
+        // If we're at max lines, end the oldest active line before starting new one
+        if (activeLines.length >= MAX_LINES) {
+          // Find the oldest active line (earliest start time)
+          const oldestLine = activeLines.reduce((oldest, current) => 
+            current.start < oldest.start ? current : oldest
+          );
+          
+          // Update the oldest line's end time to end before new line starts
+          const newEndTime = Math.max(oldestLine.start, currentTime - 0.15);
+          lineData[oldestLine.lineIndex].end = newEndTime;
+          oldestLine.end = newEndTime;
+          
+          // Remove from active lines (it will be replaced by new line)
+          const oldestIndex = activeLines.findIndex(l => l.lineIndex === oldestLine.lineIndex);
+          if (oldestIndex >= 0) {
+            activeLines.splice(oldestIndex, 1);
+          }
+        }
+        
+        // Join words with proper spacing and punctuation
+        const lineText = currentLine.join(' ');
+        const lineWords = wordIndices.map(i => wordsWithPunctuation[i]);
+        
+        // Add small gap before next line starts (for smoother fade transitions)
+        const nextLineStart = currentTime + 0.1;
+        
+        // Store line data
+        const lineIndex = lineData.length;
+        lineData.push({
+          start: lineStartTime,
+          end: lineEndTime,
+          text: lineText,
+          words: lineWords
+        });
+        
+        // Track this line as active
+        activeLines.push({ 
+          start: lineStartTime, 
+          end: lineEndTime,
+          lineIndex: lineIndex
+        });
+        
         currentLine = [];
         wordIndices = [];
-        lineStartTime = word.end || lineEndTime;
+        lineStartTime = nextLineStart;
       }
     });
     
     // Add remaining words
     if (currentLine.length > 0) {
-      const lineWords = wordIndices.map(i => transcription.words[i]);
-      // Join words with spaces, but preserve punctuation that's already attached
-      const finalLineText = currentLine.join(' ').replace(/\s+([.,!?;:])/g, '$1');
-      lines.push(formatASSLineWithWords(
-        lineStartTime,
-        lineEndTime,
-        finalLineText,
-        lineWords
-      ));
+      const lineWords = wordIndices.map(i => wordsWithPunctuation[i]);
+      const finalLineText = currentLine.join(' ');
+      lineData.push({
+        start: lineStartTime,
+        end: lineEndTime,
+        text: finalLineText,
+        words: lineWords
+      });
     }
+    
+    // Convert all line data to ASS format
+    lineData.forEach((line) => {
+      lines.push(formatASSLineWithWords(
+        line.start,
+        line.end,
+        line.text,
+        line.words
+      ));
+    });
   } else {
     // Fallback: create simple subtitles without word-level timing
     const words = script.split(/\s+/);
@@ -240,6 +371,19 @@ function formatASSLineWithWords(start: number, end: number, lineText: string, wo
   const startTime = formatASSTime(start);
   const endTime = formatASSTime(end);
   
+  // Calculate fade durations (in centiseconds)
+  // Fade in: 200ms (20 centiseconds) for smooth entry
+  // Fade out: 300ms (30 centiseconds) for smooth exit
+  const fadeInDuration = 20; // 0.2 seconds
+  const fadeOutDuration = 30; // 0.3 seconds
+  
+  // Total line duration in centiseconds
+  const lineDuration = (end - start) * 100;
+  
+  // Ensure fade durations don't exceed line duration
+  const actualFadeIn = Math.min(fadeInDuration, lineDuration * 0.2);
+  const actualFadeOut = Math.min(fadeOutDuration, lineDuration * 0.3);
+  
   // Create word-by-word highlighting using ASS karaoke tags
   // ASS karaoke format: {\k<duration>} highlights text for duration in centiseconds
   let highlightedText = '';
@@ -248,10 +392,11 @@ function formatASSLineWithWords(start: number, end: number, lineText: string, wo
   words.forEach((word, index) => {
     const wordStart = word.start || (start + cumulativeTime);
     const wordEnd = word.end || (wordStart + 0.5);
-    // Preserve punctuation - don't trim, just remove leading/trailing whitespace but keep punctuation
-    let wordText = word.word;
+    // Use word with punctuation (from script matching)
+    let wordText = word.word || word.originalWord || word.word || '';
     // Remove only leading/trailing spaces, but keep punctuation attached to the word
     wordText = wordText.replace(/^\s+|\s+$/g, '');
+    if (!wordText) return; // Skip empty words
     const wordDuration = (wordEnd - wordStart) * 100; // Convert to centiseconds
     
     // Calculate pause before this word
@@ -285,7 +430,11 @@ function formatASSLineWithWords(start: number, end: number, lineText: string, wo
   // Escape special characters for ASS format
   highlightedText = highlightedText.replace(/\n/g, '\\N');
   
-  return `Dialogue: 0,${startTime},${endTime},Default,,0,0,0,,${highlightedText}`;
+  // Add fade effect: {\fad(fade_in, fade_out)}
+  // Apply fade at the beginning of the line
+  const fadedText = `{\\fad(${Math.round(actualFadeIn)},${Math.round(actualFadeOut)})}${highlightedText}`;
+  
+  return `Dialogue: 0,${startTime},${endTime},Default,,0,0,0,,${fadedText}`;
 }
 
 function formatASSTime(seconds: number): string {
@@ -312,6 +461,7 @@ export async function getVideoDuration(videoPath: string): Promise<number> {
 async function createVideoWithStaticAvatar(
   audioPath: string,
   subtitlePath: string,
+  script: VideoScript,
   outputDir: string
 ): Promise<string> {
   const videoPath = path.join(outputDir, `video_${Date.now()}.mp4`);
@@ -330,26 +480,116 @@ async function createVideoWithStaticAvatar(
     console.warn('Could not get audio duration, using default:', error);
   }
   
-  // Create video using FFmpeg with subtitles
-  // Use subtitles filter to overlay captions at the bottom with word-by-word highlighting
+  // Parse script to estimate when price/NFT sections occur
+  // Estimate: intro ~15s, price ~30s, news ~2-3min, NFT ~30s, outro ~15s
+  const introEnd = 15;
+  const priceStart = introEnd;
+  const priceEnd = priceStart + 30;
+  const nftStart = Math.max(duration - 45, duration * 0.85); // Last 30-45 seconds
+  const nftEnd = duration - 15;
+  
+  // Helper function to escape text for FFmpeg drawtext
+  const escapeText = (text: string): string => {
+    return text.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/:/g, '\\:');
+  };
+
+  // Build text overlay filters for price data
+  // Position titles near top (y=60-80) to avoid overlap with captions at bottom (y~640)
+  let priceOverlays: string[] = [];
+  if (script.priceUpdate && script.priceUpdate.topWinners.length > 0) {
+    // Market sentiment label (top) - Bitcoin orange - moved to top
+    const sentimentText = escapeText(`Market: ${script.priceUpdate.marketSentiment.toUpperCase()}`);
+    priceOverlays.push(
+      `drawtext=text='${sentimentText}':fontsize=36:fontcolor=0xF7931A:x=(w-text_w)/2:y=60:enable='between(t\\,${priceStart}\\,${priceEnd})'`
+    );
+    
+    // Winners section (below title) - Green
+    const winners = script.priceUpdate.topWinners.slice(0, 3);
+    winners.forEach((winner, index) => {
+      const yPos = 120 + (index * 60); // Start below title
+      const text = escapeText(`${winner.symbol}  +${winner.change24h.toFixed(1)}%`);
+      priceOverlays.push(
+        `drawtext=text='${text}':fontsize=48:fontcolor=0x00FF00:x=(w-text_w)/2:y=${yPos}:enable='between(t\\,${priceStart}\\,${priceEnd})'`
+      );
+    });
+    
+    // Losers section (below winners) - Red
+    const losers = script.priceUpdate.topLosers.slice(0, 3);
+    losers.forEach((loser, index) => {
+      const yPos = 300 + (index * 60); // Positioned below winners
+      const text = escapeText(`${loser.symbol}  ${loser.change24h.toFixed(1)}%`);
+      priceOverlays.push(
+        `drawtext=text='${text}':fontsize=48:fontcolor=0xFF0000:x=(w-text_w)/2:y=${yPos}:enable='between(t\\,${priceStart}\\,${priceEnd})'`
+      );
+    });
+  }
+  
+  // Build text overlay filters for NFT data
+  // Position titles near top (y=60-80) to avoid overlap with captions at bottom (y~640)
+  let nftOverlays: string[] = [];
+  if (script.nftUpdate && script.nftUpdate.trendingCollections.length > 0) {
+    // NFT label - Bitcoin orange - moved to top
+    nftOverlays.push(
+      `drawtext=text='TRENDING NFTs':fontsize=48:fontcolor=0xF7931A:x=(w-text_w)/2:y=60:enable='between(t\\,${nftStart}\\,${nftEnd})'`
+    );
+    
+    const nfts = script.nftUpdate.trendingCollections.slice(0, 3);
+    nfts.forEach((nft, index) => {
+      const yPos = 120 + (index * 80); // Start below title
+      const changeText = nft.floorPriceChange24h > 0 ? `+${nft.floorPriceChange24h.toFixed(1)}%` : `${nft.floorPriceChange24h.toFixed(1)}%`;
+      const text = escapeText(`${nft.name}: ${nft.floorPrice.toFixed(2)} ETH (${changeText})`);
+      const color = nft.floorPriceChange24h > 0 ? '0x00FF00' : '0xFF0000';
+      nftOverlays.push(
+        `drawtext=text='${text}':fontsize=42:fontcolor=${color}:x=(w-text_w)/2:y=${yPos}:enable='between(t\\,${nftStart}\\,${nftEnd})'`
+      );
+    });
+  }
+  
+  // Combine all overlays
+  const allOverlays = [...priceOverlays, ...nftOverlays];
+  
+  // Create video using FFmpeg with subtitles and text overlays
   // Escape paths properly for shell
   const escapedSubtitlePath = subtitlePath.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'");
   const escapedAvatarPath = avatarPath.replace(/\\/g, '\\\\').replace(/:/g, '\\:');
   const escapedAudioPath = audioPath.replace(/\\/g, '\\\\').replace(/:/g, '\\:');
   const escapedVideoPath = videoPath.replace(/\\/g, '\\\\').replace(/:/g, '\\:');
   
+  // Build filter chain: scale/pad -> text overlays -> subtitles
+  let filterChain = 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=0x0a0a0a';
+  if (allOverlays.length > 0) {
+    filterChain += ',' + allOverlays.join(',');
+  }
+  filterChain += `,subtitles='${escapedSubtitlePath}':force_style='Alignment=2,MarginV=80,Outline=4,Shadow=2,FontSize=52,Bold=1,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BackColour=&HC0000000,SecondaryColour=&H1A93F7',format=yuv420p`;
+  
   const ffmpegCommand = `ffmpeg -y -loop 1 -i "${escapedAvatarPath}" -i "${escapedAudioPath}" ` +
-    `-vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=0x0a0a0a,subtitles='${escapedSubtitlePath}':force_style='Alignment=2,MarginV=80,Outline=4,Shadow=2,FontSize=52,Bold=1,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BackColour=&HC0000000,SecondaryColour=&H1A93F7',format=yuv420p" ` +
+    `-vf "${filterChain}" ` +
     `-c:v libx264 -preset slow -crf 18 -tune stillimage -c:a aac -b:a 256k -ar 48000 -pix_fmt yuv420p ` +
     `-shortest "${escapedVideoPath}"`;
   
   try {
-    await execAsync(ffmpegCommand);
-    console.log(`Video created successfully with captions: ${videoPath}`);
+    console.log('🎬 Creating video with FFmpeg...');
+    console.log(`Filter chain length: ${filterChain.length} characters`);
+    if (allOverlays.length > 0) {
+      console.log(`📊 Adding ${allOverlays.length} text overlays (${priceOverlays.length} price, ${nftOverlays.length} NFT)`);
+    }
+    const result = await execAsync(ffmpegCommand);
+    if (result.stderr) {
+      // FFmpeg outputs to stderr even on success, so only log if there's actual error content
+      const errorLines = result.stderr.split('\n').filter((line: string) => 
+        line.toLowerCase().includes('error') || line.toLowerCase().includes('failed')
+      );
+      if (errorLines.length > 0) {
+        console.warn('FFmpeg warnings:', errorLines.join('\n'));
+      }
+    }
+    console.log(`✅ Video created successfully with captions and overlays: ${videoPath}`);
     return videoPath;
-  } catch (error) {
-    console.error('FFmpeg error:', error);
-    throw new Error('Failed to create video. Make sure FFmpeg is installed: https://ffmpeg.org/download.html');
+  } catch (error: any) {
+    console.error('❌ FFmpeg error:', error);
+    const errorMessage = error?.stderr || error?.message || String(error);
+    console.error('Full error details:', errorMessage);
+    throw new Error(`Failed to create video: ${errorMessage.substring(0, 200)}. Make sure FFmpeg is installed: https://ffmpeg.org/download.html`);
   }
 }
 
@@ -570,13 +810,22 @@ export async function generateThumbnail(
       ctx.textBaseline = 'middle';
       
       // Use thumbnail title if available (shorter, more catchy), otherwise use regular title
-      const titleToUse = script.thumbnailTitle || script.title;
+      let titleToUse = script.thumbnailTitle || script.title;
+      
+      // Remove quotation marks unless they're actual quotes (e.g., "someone said")
+      // Check if quotes are used for actual quotations (words like "said", "announced", "stated" nearby)
+      const hasQuoteContext = /\b(said|says|announced|stated|declared|quoted|tweeted|posted|wrote|claimed|revealed)\b/i.test(titleToUse);
+      if (!hasQuoteContext) {
+        // Remove decorative quotes (not actual quotes)
+        titleToUse = titleToUse.replace(/^["']|["']$/g, ''); // Remove leading/trailing quotes
+        titleToUse = titleToUse.replace(/\s*["']\s*/g, ' '); // Remove standalone quotes
+      }
       
       // Calculate text sizing - adaptive font size to ensure it fits
       const textMaxWidth = 1100; // Full width minus padding
       let fontSize = 90; // Start with large, bold font
       const minFontSize = 60; // Minimum font size
-      const maxLines = 3; // Maximum lines allowed
+      const maxLines = 2; // Maximum lines allowed
       
       // Try to fit the title with adaptive font sizing
       let titleLines: string[] = [];
@@ -778,7 +1027,16 @@ export async function generateThumbnail(
       };
       
       // Use thumbnail title if available, otherwise use regular title
-      const titleToUse = script.thumbnailTitle || script.title;
+      let titleToUse = script.thumbnailTitle || script.title;
+      
+      // Remove quotation marks unless they're actual quotes (e.g., "someone said")
+      const hasQuoteContext = /\b(said|says|announced|stated|declared|quoted|tweeted|posted|wrote|claimed|revealed)\b/i.test(titleToUse);
+      if (!hasQuoteContext) {
+        // Remove decorative quotes (not actual quotes)
+        titleToUse = titleToUse.replace(/^["']|["']$/g, ''); // Remove leading/trailing quotes
+        titleToUse = titleToUse.replace(/\s*["']\s*/g, ' '); // Remove standalone quotes
+      }
+      
       const safeTitle = escapeXml(titleToUse.substring(0, 50));
       
       // NEW STYLE SVG: Split background with white text

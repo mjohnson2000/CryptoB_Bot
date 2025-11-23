@@ -1,4 +1,4 @@
-import { VideoScript } from './aiService.js';
+import { VideoScript, PriceUpdate, NFTUpdate } from './aiService.js';
 import { getVideoDuration } from './videoGenerator.js';
 
 /**
@@ -26,10 +26,17 @@ export async function updateDescriptionWithTimestamps(
     // Use proportional distribution to ensure accuracy
     const timestamps: { topic: string; time: string }[] = [];
     
-    // Reserve time for intro (10% of video, max 20 seconds) and outro (5% of video, max 10 seconds)
-    const introTime = Math.min(videoDuration * 0.1, 20);
-    const outroReserveTime = Math.min(videoDuration * 0.05, 10);
-    const availableTime = videoDuration - introTime - outroReserveTime;
+    // Reserve time for sections:
+    // - Intro: ~15 seconds
+    // - Price update: ~30 seconds (after intro)
+    // - NFT update: ~30 seconds (before outro)
+    // - Outro: ~15 seconds
+    const introTime = 15;
+    const priceUpdateTime = 30;
+    const nftUpdateTime = 30;
+    const outroTime = 15;
+    const reservedTime = introTime + priceUpdateTime + nftUpdateTime + outroTime;
+    const availableTime = Math.max(0, videoDuration - reservedTime);
     
     // Distribute available time among topics proportionally
     // Find where each topic appears in the script to get better estimates
@@ -55,11 +62,13 @@ export async function updateDescriptionWithTimestamps(
         ? foundPosition / scriptLines.length 
         : (index + 1) / (topics.length + 1);
       
-      // Calculate time: intro time + proportional share of available time
-      const topicTime = introTime + (scriptPosition * availableTime);
+      // Calculate time: intro + price update + proportional share of available time (for main news)
+      // Main news starts after intro + price update
+      const mainNewsStart = introTime + priceUpdateTime;
+      const topicTime = mainNewsStart + (scriptPosition * availableTime);
       
-      // Ensure time doesn't exceed video duration
-      const clampedTime = Math.min(topicTime, videoDuration - outroReserveTime - 5);
+      // Ensure time doesn't exceed NFT update section
+      const clampedTime = Math.min(topicTime, videoDuration - nftUpdateTime - outroTime - 5);
       
       topicPositions.push({
         topic: topic.title,
@@ -78,7 +87,7 @@ export async function updateDescriptionWithTimestamps(
       timestamps.push({ topic, time: timeStr });
     });
     
-    console.log(`📊 Timestamp calculation: Video=${videoDuration.toFixed(1)}s, Intro=${introTime.toFixed(1)}s, Available=${availableTime.toFixed(1)}s, Outro=${outroReserveTime.toFixed(1)}s`);
+    console.log(`📊 Timestamp calculation: Video=${videoDuration.toFixed(1)}s, Intro=${introTime}s, Price=${priceUpdateTime}s, Main News=${availableTime.toFixed(1)}s, NFT=${nftUpdateTime}s, Outro=${outroTime}s`);
     
     // Update description with accurate timestamps
     // IMPORTANT: Preserve the reference links section at the end
@@ -102,6 +111,14 @@ export async function updateDescriptionWithTimestamps(
     // Add intro timestamp
     timestampSection += '0:00 - Intro\n';
     
+    // Add price update timestamp if available
+    if (script.priceUpdate) {
+      const priceMinutes = Math.floor((introTime) / 60);
+      const priceSeconds = introTime % 60;
+      const priceTimeStr = `${priceMinutes}:${priceSeconds.toString().padStart(2, '0')}`;
+      timestampSection += `${priceTimeStr} - Price Movement Update\n`;
+    }
+    
     // Add topic timestamps (ensure they don't exceed video duration)
     timestamps.forEach(({ topic, time }) => {
       // Parse the time to ensure it's within video duration
@@ -120,11 +137,20 @@ export async function updateDescriptionWithTimestamps(
       }
     });
     
+    // Add NFT update timestamp if available
+    if (script.nftUpdate) {
+      const nftStartTime = Math.max(0, videoDuration - nftUpdateTime - outroTime);
+      const nftStartMinutes = Math.floor(nftStartTime / 60);
+      const nftStartSeconds = Math.floor(nftStartTime % 60);
+      const nftTimeStr = `${nftStartMinutes}:${nftStartSeconds.toString().padStart(2, '0')}`;
+      timestampSection += `${nftTimeStr} - NFT Update\n`;
+    }
+    
     // Add outro timestamp (use actual video duration)
     const outroMinutes = Math.floor(videoDuration / 60);
     const outroSeconds = Math.floor(videoDuration % 60);
-    const outroTime = `${outroMinutes}:${outroSeconds.toString().padStart(2, '0')}`;
-    timestampSection += `${outroTime} - Outro`;
+    const outroTimeStr = `${outroMinutes}:${outroSeconds.toString().padStart(2, '0')}`;
+    timestampSection += `${outroTimeStr} - Outro`;
     
     // Insert timestamp section after the main description content
     // Find where to insert (usually after paragraphs, before any existing sections)

@@ -1,5 +1,9 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import { parseString } from 'xml2js';
+import { promisify } from 'util';
+
+const parseXML = promisify(parseString);
 
 export interface NewsArticle {
   title: string;
@@ -9,34 +13,191 @@ export interface NewsArticle {
   summary?: string;
 }
 
+interface RSSFeed {
+  url: string;
+  source: string;
+  name: string;
+}
+
+// RSS Feed sources
+const RSS_FEEDS: RSSFeed[] = [
+  {
+    url: 'https://www.coindesk.com/arc/outboundfeeds/rss/',
+    source: 'CoinDesk',
+    name: 'CoinDesk'
+  },
+  {
+    url: 'https://cointelegraph.com/rss',
+    source: 'CoinTelegraph',
+    name: 'CoinTelegraph'
+  },
+  {
+    url: 'https://cryptoslate.com/feed/',
+    source: 'CryptoSlate',
+    name: 'CryptoSlate'
+  },
+  {
+    url: 'https://www.theblock.co/rss.xml',
+    source: 'The Block',
+    name: 'The Block'
+  },
+  {
+    url: 'https://decrypt.co/feed',
+    source: 'Decrypt',
+    name: 'Decrypt'
+  },
+  {
+    url: 'https://coinjournal.net/feed/',
+    source: 'CoinJournal',
+    name: 'CoinJournal'
+  }
+];
+
 export async function scrapeCryptoNews(): Promise<NewsArticle[]> {
   const articles: NewsArticle[] = [];
   const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
 
   try {
-    // Scrape from CoinDesk
-    const coinDeskArticles = await scrapeCoinDesk(fourHoursAgo);
-    articles.push(...coinDeskArticles);
+    // Try RSS feeds first (more reliable, includes publish dates)
+    console.log('📡 Fetching news from RSS feeds...');
+    const rssArticles = await fetchRSSFeeds(fourHoursAgo);
+    articles.push(...rssArticles);
+    console.log(`✅ Fetched ${rssArticles.length} articles from RSS feeds`);
 
-    // Scrape from CoinTelegraph
-    const coinTelegraphArticles = await scrapeCoinTelegraph(fourHoursAgo);
-    articles.push(...coinTelegraphArticles);
+    // Fallback to scraping if RSS didn't get enough articles
+    if (articles.length < 10) {
+      console.log('📰 Supplementing with web scraping...');
+      const coinDeskArticles = await scrapeCoinDesk(fourHoursAgo);
+      articles.push(...coinDeskArticles);
 
-    // Scrape from CryptoSlate
-    const cryptoSlateArticles = await scrapeCryptoSlate(fourHoursAgo);
-    articles.push(...cryptoSlateArticles);
+      const coinTelegraphArticles = await scrapeCoinTelegraph(fourHoursAgo);
+      articles.push(...coinTelegraphArticles);
 
-    // Filter articles from last 4 hours
-    const recentArticles = articles.filter(article => 
+      const cryptoSlateArticles = await scrapeCryptoSlate(fourHoursAgo);
+      articles.push(...cryptoSlateArticles);
+      console.log(`✅ Scraped ${coinDeskArticles.length + coinTelegraphArticles.length + cryptoSlateArticles.length} additional articles`);
+    }
+
+    // Remove duplicates (same URL)
+    const uniqueArticles = removeDuplicates(articles);
+
+    // Filter articles from last 4 hours (using actual publish dates)
+    const recentArticles = uniqueArticles.filter(article => 
       article.timestamp >= fourHoursAgo
     );
 
+    console.log(`📊 Total unique articles from last 4 hours: ${recentArticles.length}`);
     return recentArticles;
   } catch (error) {
     console.error('Error scraping crypto news:', error);
-    // Return mock data if scraping fails
+    // Return mock data if everything fails
     return getMockNewsArticles();
   }
+}
+
+/**
+ * Fetch articles from RSS feeds
+ */
+async function fetchRSSFeeds(cutoffDate: Date): Promise<NewsArticle[]> {
+  const allArticles: NewsArticle[] = [];
+  const fourHoursAgo = cutoffDate.getTime();
+
+  // Fetch from all RSS feeds in parallel
+  const feedPromises = RSS_FEEDS.map(feed => fetchRSSFeed(feed, cutoffDate));
+  const results = await Promise.allSettled(feedPromises);
+
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      allArticles.push(...result.value);
+      console.log(`  ✅ ${RSS_FEEDS[index].name}: ${result.value.length} articles`);
+    } else {
+      console.warn(`  ⚠️ ${RSS_FEEDS[index].name}: Failed to fetch - ${result.reason}`);
+    }
+  });
+
+  return allArticles;
+}
+
+/**
+ * Fetch articles from a single RSS feed
+ */
+async function fetchRSSFeed(feed: RSSFeed, cutoffDate: Date): Promise<NewsArticle[]> {
+  try {
+    const response = await axios.get(feed.url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      timeout: 10000
+    });
+
+    try {
+      const result: any = await parseXML(response.data);
+      const articles: NewsArticle[] = [];
+      const items = result?.rss?.channel?.[0]?.item || result?.feed?.entry || [];
+
+      items.forEach((item: any) => {
+        try {
+          // Handle different RSS formats (RSS 2.0 and Atom)
+          const title = item.title?.[0]?._ || item.title?.[0] || item.title || '';
+          const link = item.link?.[0]?._ || item.link?.[0]?.$.href || item.link?.[0] || item.id?.[0] || '';
+          const pubDate = item.pubDate?.[0] || item.published?.[0] || item.updated?.[0] || '';
+          const description = item.description?.[0]?._ || item.description?.[0] || item.summary?.[0]?._ || item.summary?.[0] || '';
+
+          if (!title || !link) {
+            return; // Skip invalid entries
+          }
+
+          // Parse publish date
+          let timestamp = new Date();
+          if (pubDate) {
+            const parsedDate = new Date(pubDate);
+            if (!isNaN(parsedDate.getTime())) {
+              timestamp = parsedDate;
+            }
+          }
+
+          // Only include articles from last 4 hours
+          if (timestamp.getTime() >= cutoffDate.getTime()) {
+            articles.push({
+              title: title.trim(),
+              url: link.trim(),
+              source: feed.source,
+              timestamp,
+              summary: description ? description.trim().substring(0, 200) : undefined
+            });
+          }
+        } catch (itemError) {
+          console.warn(`Error parsing RSS item from ${feed.source}:`, itemError);
+        }
+      });
+
+      return articles;
+    } catch (parseError) {
+      console.error(`Error parsing RSS XML from ${feed.source}:`, parseError);
+      return [];
+    }
+  } catch (error) {
+    console.error(`Error fetching RSS feed from ${feed.source}:`, error);
+    return [];
+  }
+}
+
+/**
+ * Remove duplicate articles (same URL)
+ */
+function removeDuplicates(articles: NewsArticle[]): NewsArticle[] {
+  const seen = new Set<string>();
+  const unique: NewsArticle[] = [];
+
+  articles.forEach(article => {
+    const normalizedUrl = article.url.toLowerCase().split('?')[0]; // Remove query params
+    if (!seen.has(normalizedUrl)) {
+      seen.add(normalizedUrl);
+      unique.push(article);
+    }
+  });
+
+  return unique;
 }
 
 async function scrapeCoinDesk(cutoffDate: Date): Promise<NewsArticle[]> {

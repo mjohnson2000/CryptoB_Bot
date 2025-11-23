@@ -10,6 +10,16 @@ export interface TrendingTopic {
   isUpdate?: boolean; // True if this topic was recently covered and has updates
 }
 
+export interface PriceUpdate {
+  topWinners: Array<{ symbol: string; name: string; change24h: number }>;
+  topLosers: Array<{ symbol: string; name: string; change24h: number }>;
+  marketSentiment: 'bullish' | 'bearish' | 'neutral';
+}
+
+export interface NFTUpdate {
+  trendingCollections: Array<{ name: string; floorPrice: number; floorPriceChange24h: number }>;
+}
+
 export interface VideoScript {
   title: string;
   thumbnailTitle?: string; // Optional shorter title for thumbnail
@@ -17,6 +27,8 @@ export interface VideoScript {
   tags: string[];
   script: string;
   topics: TrendingTopic[];
+  priceUpdate?: PriceUpdate;
+  nftUpdate?: NFTUpdate;
 }
 
 function getOpenAIClient(): OpenAI {
@@ -166,7 +178,9 @@ Only return the JSON object, no other text.`;
 
 export async function generateVideoScript(
   topics: TrendingTopic[],
-  allTopics?: TrendingTopic[] // All topics before filtering (for context)
+  allTopics?: TrendingTopic[], // All topics before filtering (for context)
+  priceUpdate?: PriceUpdate,
+  nftUpdate?: NFTUpdate
 ): Promise<VideoScript> {
   try {
     const topicsText = topics
@@ -207,15 +221,47 @@ Some of these topics may have been covered in recent videos. To avoid repetition
 CRITICAL: If a topic was recently covered, you MUST use a different narrative angle, focus on updates, or provide deeper analysis. Never repeat the same story.`;
     }
 
+    // Build price update section text
+    let priceSection = '';
+    if (priceUpdate) {
+      const winnersText = priceUpdate.topWinners.slice(0, 3)
+        .map(w => `${w.symbol} (+${w.change24h.toFixed(1)}%)`)
+        .join(', ');
+      const losersText = priceUpdate.topLosers.slice(0, 3)
+        .map(l => `${l.symbol} (${l.change24h.toFixed(1)}%)`)
+        .join(', ');
+      priceSection = `\n\nPRICE MOVEMENT UPDATE (to be covered right after intro, ~30 seconds):
+Top Winners: ${winnersText}
+Top Losers: ${losersText}
+Market Sentiment: ${priceUpdate.marketSentiment}
+Keep this section SHORT, punchy, and energetic. Use phrases like "mooning", "getting rekt", "pumping".`;
+    }
+
+    // Build NFT update section text
+    let nftSection = '';
+    if (nftUpdate) {
+      const nftText = nftUpdate.trendingCollections.slice(0, 3)
+        .map(nft => `${nft.name} (Floor: ${nft.floorPrice.toFixed(2)} ETH, ${nft.floorPriceChange24h > 0 ? '+' : ''}${nft.floorPriceChange24h.toFixed(1)}%)`)
+        .join(', ');
+      nftSection = `\n\nNFT UPDATE (to be covered before outro, ~30 seconds):
+Trending Collections: ${nftText}
+Keep this section SHORT and focused on floor prices and trends.`;
+    }
+
     const prompt = `You are "Crypto B", a charismatic crypto influencer creating a YouTube video for young degens. Create an engaging video script based on these trending topics:
 
-${topicsText}${updateContext}
+${topicsText}${updateContext}${priceSection}${nftSection}
 
 Requirements:
 - Target audience: Young crypto degens (18-30, meme-loving, risk-tolerant)
 - Tone: Energetic, casual, slightly edgy, use crypto slang
-- Length: 3-5 minutes of speaking (approximately 450-750 words)
-- Structure: Hook intro, cover each topic, engaging transitions, strong outro
+- Length: 4-6 minutes of speaking (approximately 600-900 words)
+- Structure: 
+  1. Hook intro (15 seconds) - mention 4-hour updates
+  2. Price Movement Update (30 seconds) - top winners/losers, market sentiment
+  3. Main News Stories (2-3 minutes) - cover each topic with analysis
+  4. NFT Update (30 seconds) - trending collections, floor prices
+  5. Strong outro (15 seconds) - subscribe, next update in 4 hours
 - Include: Price movements, market sentiment, potential opportunities
 - Use: Crypto terminology (moon, diamond hands, FUD, alpha, etc.)
 - IMPORTANT: Mention in the intro and/or outro that this news is from the last 4 hours, and that new videos are posted every 4 hours with the latest crypto updates
@@ -267,6 +313,14 @@ Format your response as JSON:
     // Generate a shorter, more catchy thumbnail title
     let thumbnailTitle = parsed.title || 'Latest Crypto News';
     
+    // Remove decorative quotation marks (unless it's an actual quote)
+    const hasQuoteContext = /\b(said|says|announced|stated|declared|quoted|tweeted|posted|wrote|claimed|revealed)\b/i.test(thumbnailTitle);
+    if (!hasQuoteContext) {
+      thumbnailTitle = thumbnailTitle.replace(/^["']|["']$/g, ''); // Remove leading/trailing quotes
+      thumbnailTitle = thumbnailTitle.replace(/\s*["']\s*/g, ' '); // Remove standalone quotes
+      thumbnailTitle = thumbnailTitle.trim();
+    }
+    
     // If title is too long, ask AI to create a shorter thumbnail version
     if (thumbnailTitle.length > 50) {
       try {
@@ -296,8 +350,15 @@ Return ONLY the short thumbnail title, nothing else.`;
           max_tokens: 50
         });
 
-        const shortTitle = thumbnailResponse.choices[0]?.message?.content?.trim();
+        let shortTitle = thumbnailResponse.choices[0]?.message?.content?.trim();
         if (shortTitle && shortTitle.length <= 50) {
+          // Remove decorative quotes from generated title too
+          const hasQuoteContext = /\b(said|says|announced|stated|declared|quoted|tweeted|posted|wrote|claimed|revealed)\b/i.test(shortTitle);
+          if (!hasQuoteContext) {
+            shortTitle = shortTitle.replace(/^["']|["']$/g, '');
+            shortTitle = shortTitle.replace(/\s*["']\s*/g, ' ');
+            shortTitle = shortTitle.trim();
+          }
           thumbnailTitle = shortTitle;
         }
       } catch (error) {
@@ -335,7 +396,9 @@ Return ONLY the short thumbnail title, nothing else.`;
       description: finalDescription,
       tags: parsed.tags || [],
       script: parsed.script || '',
-      topics
+      topics,
+      priceUpdate: priceUpdate,
+      nftUpdate: nftUpdate
     };
   } catch (error) {
     console.error('Error generating script:', error);
