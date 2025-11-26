@@ -907,13 +907,24 @@ async function createVideoWithStaticAvatar(
     
     // Position and scroll parameters
     const scrollSpeed = 60; // pixels per second
-    const tickerY = 600; // Position above captions
+    const baseTickerY = 600; // Base position above captions
     const videoWidth = 1280;
     
     // Create gradient background overlay for ticker area using drawbox
     const tickerHeight = 50;
     const tickerPadding = 8;
-    const tickerTopY = tickerY - tickerHeight / 2 - tickerPadding;
+    const tickerTopY = baseTickerY - tickerHeight / 2 - tickerPadding;
+    const tickerBandHeight = tickerHeight + (tickerPadding * 2);
+    
+    // Calculate vertically centered y position for text
+    // FFmpeg drawtext uses baseline, so we need to account for font size
+    const fontSize = 28;
+    const tickerCenterY = tickerTopY + tickerBandHeight / 2;
+    // Adjust for baseline: center - half font size (baseline is at bottom of text)
+    // Most text sits above the baseline, so subtract to center properly
+    const tickerY = tickerCenterY - fontSize / 2 + 2; // +2 accounts for border/outline
+    // Separator dots positioned 5 pixels lower than main text
+    const separatorY = tickerY + 5;
     
     // Create gradient background using multiple drawbox filters with different opacities
     // FFmpeg drawbox uses 8-digit hex format: 0xRRGGBBAA (alpha as last 2 digits)
@@ -1014,7 +1025,7 @@ async function createVideoWithStaticAvatar(
           const xExpression = `${baseScrollX}+${separatorX}`;
           
           tickerDrawtexts.push(
-            `drawtext=text='${escapedSeparator}':fontsize=28:fontcolor=0xFFFFFF:borderw=2:bordercolor=0x000000:x=${xExpression}:y=${tickerY}`
+            `drawtext=text='${escapedSeparator}':fontsize=28:fontcolor=0xFFFFFF:borderw=2:bordercolor=0x000000:x=${xExpression}:y=${separatorY}`
           );
         }
       });
