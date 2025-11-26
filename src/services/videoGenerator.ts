@@ -818,13 +818,39 @@ async function createVideoWithStaticAvatar(
     }
   }
   
-  // Build scrolling ticker tape at bottom with crypto prices
-  // Use textfile to avoid FFmpeg parsing issues with very long inline text
+  // Build enhanced scrolling ticker tape at bottom with crypto prices
+  // Using drawtext with scrolling for reliability, with color-coded text
   let tickerOverlay: string | null = null;
   let tickerTextFile: string | null = null;
   if (script.priceUpdate && script.priceUpdate.tickerCoins && script.priceUpdate.tickerCoins.length > 0) {
-    // Format ticker text: "BTC $45,230 +5.2% | ETH $2,850 +4.8% | ..."
-    const tickerItems = script.priceUpdate.tickerCoins.map(coin => {
+    const tickerCoins = script.priceUpdate.tickerCoins;
+    
+    // Build ticker items with segmented color coding
+    // Only the change value (+2.5 or -2.5) will be colored, rest stays white
+    interface TickerSegment {
+      text: string;
+      color: string; // 'white', 'green', or 'red'
+      width: number;
+    }
+    
+    interface TickerItem {
+      segments: TickerSegment[];
+      totalWidth: number;
+      isPositive: boolean;
+    }
+    
+    const tickerItems: TickerItem[] = [];
+    
+    // Estimate character width (roughly 15 pixels per character for Arial 28px)
+    // Increased to account for font rendering, spacing, and prevent overlap
+    const charWidth = 15;
+    const separator = '  •  ';
+    const separatorWidth = charWidth * separator.length; // Approximate width of separator
+    
+    tickerCoins.forEach((coin, index) => {
+      // Sanitize coin symbol to prevent shell command injection
+      const sanitizedSymbol = coin.symbol.replace(/[^a-zA-Z0-9_-]/g, '');
+      
       // Format price based on value
       let priceFormatted: string;
       if (coin.price >= 1000) {
@@ -835,37 +861,167 @@ async function createVideoWithStaticAvatar(
         priceFormatted = `$${coin.price.toFixed(4)}`;
       }
       
-      // Use "pct" instead of "%" to avoid FFmpeg variable syntax issues
-      const changeFormatted = coin.change24h >= 0 
-        ? `+${coin.change24h.toFixed(1)}pct`
-        : `${coin.change24h.toFixed(1)}pct`;
+      // Format change (without % sign to avoid FFmpeg parsing issues)
+      const changeValue = Math.abs(coin.change24h);
+      const isPositive = coin.change24h >= 0;
+      const changeFormatted = isPositive 
+        ? `+${changeValue.toFixed(1)}`
+        : `-${changeValue.toFixed(1)}`;
       
-      // Format: "BTC $45.23K +5.2pct"
-      return `${coin.symbol} ${priceFormatted} ${changeFormatted}`;
+      // Split into segments: Symbol+Price (white), Change (green/red), Space (white)
+      // Removed arrow since color coding already indicates direction
+      // Add extra space after price for better visual separation before change value
+      const symbolPriceText = `${sanitizedSymbol} ${priceFormatted}  `;
+      const changeColor = isPositive ? 'green' : 'red';
+      // Add space after change value to prevent overlap with next coin (white, not colored)
+      const spacingAfterChange = ' ';
+      
+      const segments: TickerSegment[] = [
+        { text: symbolPriceText, color: 'white', width: symbolPriceText.length * charWidth },
+        { text: changeFormatted, color: changeColor, width: changeFormatted.length * charWidth },
+        { text: spacingAfterChange, color: 'white', width: spacingAfterChange.length * charWidth }
+      ];
+      
+      const totalWidth = segments.reduce((sum, seg) => sum + seg.width, 0);
+      
+      tickerItems.push({
+        segments,
+        totalWidth,
+        isPositive
+      });
     });
     
-    // Join with separators and repeat for seamless loop
-    const tickerText = `${tickerItems.join('  •  ')}  •  `;
-    const tickerTextRepeated = tickerText + tickerText; // Repeat for seamless scrolling
+    // Calculate cumulative widths for positioning
+    let cumulativeWidth = 0;
+    const itemPositions: number[] = [];
+    tickerItems.forEach((item, index) => {
+      itemPositions.push(cumulativeWidth);
+      cumulativeWidth += item.totalWidth;
+      if (index < tickerItems.length - 1) {
+        cumulativeWidth += separatorWidth;
+      }
+    });
     
-    // Write ticker text to a file to avoid FFmpeg parsing issues with long inline text
-    tickerTextFile = path.join(outputDir, `ticker_${Date.now()}.txt`);
-    await fs.writeFile(tickerTextFile, tickerTextRepeated, 'utf-8');
+    // Total width of one complete cycle
+    const totalWidth = cumulativeWidth;
     
-    // Position ticker just above captions (captions at y~645 with MarginV=75, ticker at y=600)
-    // Scroll speed: 60 pixels per second (adjust for desired speed)
-    const scrollSpeed = 60;
-    const tickerY = 600;
+    // Position and scroll parameters
+    const scrollSpeed = 60; // pixels per second
+    const tickerY = 600; // Position above captions
+    const videoWidth = 1280;
     
-    // Escape the textfile path for FFmpeg
-    const escapedTickerTextFile = tickerTextFile.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'");
+    // Create gradient background overlay for ticker area using drawbox
+    const tickerHeight = 50;
+    const tickerPadding = 8;
+    const tickerTopY = tickerY - tickerHeight / 2 - tickerPadding;
     
-    // Create scrolling ticker using FFmpeg drawtext with textfile parameter
-    // Standard scrolling expression: x=w-mod(t*SPEED, w+tw) creates right-to-left scrolling
-    // Use semi-transparent black background box for readability
-    // Note: In filter chains, commas in expressions must be escaped as \, 
-    // Using 'tw' (text width) which is the standard FFmpeg variable
-    tickerOverlay = `drawtext=textfile='${escapedTickerTextFile}':fontsize=26:fontcolor=0xFFFFFF:borderw=2:bordercolor=0x000000:x='w-mod(t*${scrollSpeed}\\,w+tw)':y=${tickerY}:box=1:boxcolor=0x000000@0.8:boxborderw=8`;
+    // Create gradient background using multiple drawbox filters with different opacities
+    // FFmpeg drawbox uses 8-digit hex format: 0xRRGGBBAA (alpha as last 2 digits)
+    const gradientBoxes: string[] = [];
+    const gradientSteps = 4;
+    for (let i = 0; i < gradientSteps; i++) {
+      const opacity = 0.65 + (i * 0.08); // 0.65 to 0.89 opacity gradient
+      const boxHeight = (tickerHeight + (tickerPadding * 2)) / gradientSteps;
+      const yPos = tickerTopY + (i * boxHeight);
+      const alphaDecimal = Math.round(opacity * 255);
+      const alphaHex = alphaDecimal.toString(16).padStart(2, '0').toLowerCase();
+      gradientBoxes.push(
+        `drawbox=x=0:y=${yPos}:w=iw:h=${boxHeight}:color=0x000000${alphaHex}:t=fill`
+      );
+    }
+    
+    // Add Bitcoin orange accent at edges
+    const accentWidth = 5;
+    const accentAlphaHex = (220).toString(16).padStart(2, '0').toLowerCase(); // 0xdc
+    const accentBoxes = [
+      `drawbox=x=0:y=${tickerTopY}:w=${accentWidth}:h=${tickerHeight + (tickerPadding * 2)}:color=0x1A93F7${accentAlphaHex}:t=fill`, // Left edge
+      `drawbox=x=${videoWidth - accentWidth}:y=${tickerTopY}:w=${accentWidth}:h=${tickerHeight + (tickerPadding * 2)}:color=0x1A93F7${accentAlphaHex}:t=fill` // Right edge
+    ];
+    
+    // Combine gradient and accent boxes
+    const tickerBackground = [...gradientBoxes, ...accentBoxes].join(',');
+    
+    // Create color-coded drawtext filters
+    // Only the change value will be colored (green/red), rest stays white
+    const tickerDrawtexts: string[] = [];
+    
+    // Base scrolling position (all items scroll together)
+    // Start from right edge and scroll left
+    const scrollPeriod = totalWidth * 3; // 3 cycles for seamless looping
+    const baseScrollX = `w-mod(t*${scrollSpeed}\\,${scrollPeriod})`;
+    
+    // Helper function to get color hex value
+    const getColorHex = (color: string): string => {
+      switch (color) {
+        case 'green': return '0x00FF00';
+        case 'red': return '0xFF0000';
+        default: return '0xFFFFFF'; // white
+      }
+    };
+    
+    // Helper function to escape text for FFmpeg
+    // Important: Escape special characters that could be interpreted as shell commands
+    const escapeText = (text: string): string => {
+      // Escape backslashes first
+      let escaped = text.replace(/\\/g, '\\\\');
+      // Escape colons
+      escaped = escaped.replace(/:/g, '\\:');
+      // Escape single quotes
+      escaped = escaped.replace(/'/g, "\\'");
+      // Escape dollar signs (could trigger variable expansion)
+      escaped = escaped.replace(/\$/g, '\\$');
+      // Escape backticks (could trigger command substitution)
+      escaped = escaped.replace(/`/g, '\\`');
+      // Escape parentheses (could be interpreted as shell commands)
+      escaped = escaped.replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+      // Remove or escape any forward slashes that might be interpreted as paths
+      // Actually, forward slashes should be fine in text, but let's be safe
+      return escaped;
+    };
+    
+    // Create drawtext filters for each segment of each coin
+    // Create 3 cycles for seamless looping
+    for (let cycle = 0; cycle < 3; cycle++) {
+      const cycleOffset = totalWidth * cycle;
+      
+      tickerItems.forEach((item, index) => {
+        const itemBaseX = itemPositions[index] + cycleOffset;
+        let segmentOffset = 0;
+        
+        // Render each segment with its appropriate color
+        item.segments.forEach((segment) => {
+          const segmentX = itemBaseX + segmentOffset;
+          const colorHex = getColorHex(segment.color);
+          const escapedText = escapeText(segment.text);
+          
+          // Calculate absolute x position: scroll position + offset
+          // FFmpeg needs the offset to be part of the expression
+          const xExpression = `${baseScrollX}+${segmentX}`;
+          
+          tickerDrawtexts.push(
+            `drawtext=text='${escapedText}':fontsize=28:fontcolor=${colorHex}:borderw=2:bordercolor=0x000000:x=${xExpression}:y=${tickerY}`
+          );
+          
+          segmentOffset += segment.width;
+        });
+      });
+      
+      // Add separators (white color) between items within each cycle
+      tickerItems.forEach((item, index) => {
+        if (index < tickerItems.length - 1) {
+          const separatorX = itemPositions[index] + item.totalWidth + cycleOffset;
+          const escapedSeparator = escapeText(separator);
+          const xExpression = `${baseScrollX}+${separatorX}`;
+          
+          tickerDrawtexts.push(
+            `drawtext=text='${escapedSeparator}':fontsize=28:fontcolor=0xFFFFFF:borderw=2:bordercolor=0x000000:x=${xExpression}:y=${tickerY}`
+          );
+        }
+      });
+    }
+    
+    // Combine background and all ticker text filters
+    tickerOverlay = `${tickerBackground},${tickerDrawtexts.join(',')}`;
   }
   
   // Combine all overlays
