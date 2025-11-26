@@ -14,6 +14,7 @@ export interface PriceUpdate {
   topWinners: PriceMovement[];
   topLosers: PriceMovement[];
   marketSentiment: 'bullish' | 'bearish' | 'neutral';
+  tickerCoins?: PriceMovement[]; // Top coins for ticker tape (top 20-30 by market cap)
   timestamp: Date;
 }
 
@@ -69,6 +70,12 @@ export async function getPriceMovements(): Promise<PriceUpdate> {
       .sort((a, b) => a.change24h - b.change24h)
       .slice(0, 5);
 
+    // Get top coins by market cap for ticker tape (top 25)
+    const tickerCoins = movements
+      .filter(m => m.marketCap && m.marketCap > 0)
+      .sort((a, b) => (b.marketCap || 0) - (a.marketCap || 0))
+      .slice(0, 25);
+
     // Determine market sentiment
     const avgChange = movements.reduce((sum, m) => sum + m.change24h, 0) / movements.length;
     let sentiment: 'bullish' | 'bearish' | 'neutral' = 'neutral';
@@ -79,6 +86,7 @@ export async function getPriceMovements(): Promise<PriceUpdate> {
       topWinners: winners,
       topLosers: losers,
       marketSentiment: sentiment,
+      tickerCoins,
       timestamp: new Date()
     };
   } catch (error) {
@@ -92,6 +100,19 @@ export async function getPriceMovements(): Promise<PriceUpdate> {
  * Get mock price data for fallback/testing
  */
 function getMockPriceData(): PriceUpdate {
+  const mockTickerCoins: PriceMovement[] = [
+    { symbol: 'BTC', name: 'Bitcoin', price: 45230, change24h: 5.2, change24hAbs: 5.2 },
+    { symbol: 'ETH', name: 'Ethereum', price: 2850, change24h: 4.8, change24hAbs: 4.8 },
+    { symbol: 'BNB', name: 'BNB', price: 315, change24h: 2.1, change24hAbs: 2.1 },
+    { symbol: 'SOL', name: 'Solana', price: 98, change24h: 7.3, change24hAbs: 7.3 },
+    { symbol: 'XRP', name: 'XRP', price: 0.62, change24h: 1.5, change24hAbs: 1.5 },
+    { symbol: 'ADA', name: 'Cardano', price: 0.52, change24h: -3.1, change24hAbs: 3.1 },
+    { symbol: 'DOGE', name: 'Dogecoin', price: 0.08, change24h: 3.2, change24hAbs: 3.2 },
+    { symbol: 'DOT', name: 'Polkadot', price: 7.2, change24h: -2.8, change24hAbs: 2.8 },
+    { symbol: 'MATIC', name: 'Polygon', price: 0.85, change24h: -2.5, change24hAbs: 2.5 },
+    { symbol: 'AVAX', name: 'Avalanche', price: 36, change24h: 4.1, change24hAbs: 4.1 }
+  ];
+  
   return {
     topWinners: [
       { symbol: 'BTC', name: 'Bitcoin', price: 45230, change24h: 5.2, change24hAbs: 5.2 },
@@ -104,6 +125,7 @@ function getMockPriceData(): PriceUpdate {
       { symbol: 'MATIC', name: 'Polygon', price: 0.85, change24h: -2.5, change24hAbs: 2.5 }
     ],
     marketSentiment: 'bullish',
+    tickerCoins: mockTickerCoins,
     timestamp: new Date()
   };
 }

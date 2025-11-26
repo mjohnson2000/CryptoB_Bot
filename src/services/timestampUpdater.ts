@@ -1,4 +1,5 @@
-import { VideoScript, PriceUpdate, NFTUpdate } from './aiService.js';
+import { VideoScript, NFTUpdate } from './aiService.js';
+import { PriceUpdate } from './priceData.js';
 import { getVideoDuration } from './videoGenerator.js';
 
 /**

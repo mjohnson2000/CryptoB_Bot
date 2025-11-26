@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { NewsArticle } from './newsScraper.js';
+import { PriceUpdate } from './priceData.js';
 
 export interface TrendingTopic {
   title: string;
@@ -8,12 +9,6 @@ export interface TrendingTopic {
   source: string;
   url?: string; // URL to the source article
   isUpdate?: boolean; // True if this topic was recently covered and has updates
-}
-
-export interface PriceUpdate {
-  topWinners: Array<{ symbol: string; name: string; change24h: number }>;
-  topLosers: Array<{ symbol: string; name: string; change24h: number }>;
-  marketSentiment: 'bullish' | 'bearish' | 'neutral';
 }
 
 export interface NFTUpdate {

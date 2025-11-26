@@ -5,6 +5,7 @@ import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { VideoScript } from './aiService.js';
+import { PriceUpdate } from './priceData.js';
 
 const execAsync = promisify(exec);
 
@@ -258,8 +259,9 @@ function generateASSFile(transcription: any, script: string): string {
           }
         }
         
-        // If we're at max lines, end the oldest active line before starting new one
-        if (activeLines.length >= MAX_LINES) {
+        // STRICT: Ensure we never have more than MAX_LINES active at once
+        // If we're at or above max lines, end the oldest active line(s) before starting new one
+        while (activeLines.length >= MAX_LINES) {
           // Find the oldest active line (earliest start time)
           const oldestLine = activeLines.reduce((oldest, current) => 
             current.start < oldest.start ? current : oldest
@@ -284,6 +286,16 @@ function generateASSFile(transcription: any, script: string): string {
         // Add small gap before next line starts (for smoother fade transitions)
         const nextLineStart = currentTime + 0.1;
         
+        // Final safety check: Never add if we're already at MAX_LINES
+        if (activeLines.length >= MAX_LINES) {
+          // Force end the oldest line
+          activeLines.sort((a, b) => a.start - b.start);
+          const oldestLine = activeLines[0];
+          const newEndTime = Math.max(oldestLine.start, currentTime - 0.15);
+          lineData[oldestLine.lineIndex].end = newEndTime;
+          activeLines.shift();
+        }
+        
         // Store line data
         const lineIndex = lineData.length;
         lineData.push({
@@ -293,7 +305,7 @@ function generateASSFile(transcription: any, script: string): string {
           words: lineWords
         });
         
-        // Track this line as active
+        // Track this line as active (guaranteed to be < MAX_LINES at this point)
         activeLines.push({ 
           start: lineStartTime, 
           end: lineEndTime,
@@ -353,7 +365,7 @@ ScriptType: v4.00+
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,52,&Hffffff,&H1A93F7,&H000000,&HC0000000,1,0,0,0,100,100,0,0,1,4,2,2,10,10,80,1
+Style: Default,Arial,52,&Hffffff,&H1A93F7,&H000000,&HC0000000,1,0,0,0,100,100,0,0,1,4,2,2,10,10,75,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -480,27 +492,93 @@ async function createVideoWithStaticAvatar(
     console.warn('Could not get audio duration, using default:', error);
   }
   
-  // Parse script to estimate when price/NFT sections occur
-  // Estimate: intro ~15s, price ~30s, news ~2-3min, NFT ~30s, outro ~15s
-  const introEnd = 15;
-  const priceStart = introEnd;
-  const priceEnd = priceStart + 30;
-  const nftStart = Math.max(duration - 45, duration * 0.85); // Last 30-45 seconds
-  const nftEnd = duration - 15;
+  // Calculate section timings based on actual audio duration and script structure
+  // Use proportional timing based on script sections
+  const fullScript = script.script;
+  const scriptLines = fullScript.split('\n').filter(line => line.trim().length > 0);
+  const scriptWords = fullScript.split(/\s+/).filter(w => w.trim().length > 0);
+  
+  // Use actual audio duration
+  const effectiveDuration = duration;
+  
+  // Helper function to find section start using proportional script position
+  const findSectionStartProportional = (keywords: string[], fallbackRatio: number): number => {
+    const lowerScript = fullScript.toLowerCase();
+    let bestMatchIndex = -1;
+    let bestMatchRatio = 1.0; // Start with end of script
+    
+    // Find the earliest occurrence of any keyword
+    for (const keyword of keywords) {
+      const index = lowerScript.indexOf(keyword.toLowerCase());
+      if (index !== -1) {
+        const ratio = index / fullScript.length;
+        if (ratio < bestMatchRatio) {
+          bestMatchRatio = ratio;
+          bestMatchIndex = index;
+        }
+      }
+    }
+    
+    if (bestMatchIndex !== -1 && bestMatchRatio < 0.9) {
+      // Use proportional position in script to calculate time
+      return bestMatchRatio * effectiveDuration;
+    }
+    
+    // Fallback to ratio-based time
+    return fallbackRatio * effectiveDuration;
+  };
+  
+  // Calculate section timings using proportional approach
+  // Intro: first ~10% of video or 15 seconds, whichever is less
+  const introEnd = Math.min(15, effectiveDuration * 0.1);
+  
+  // Price section: starts after intro, look for price keywords
+  // If found, use that position; otherwise use 15s (right after intro)
+  const priceKeywords = ['price', 'winners', 'losers', 'market', 'movement', 'pumping', 'mooning', 'top gainers', 'top losers'];
+  const priceStartRatio = findSectionStartProportional(priceKeywords, 0.1) / effectiveDuration;
+  const priceStart = Math.max(introEnd, Math.min(priceStartRatio * effectiveDuration, effectiveDuration * 0.25));
+  const priceEnd = Math.min(priceStart + 30, effectiveDuration * 0.3);
+  
+  // NFT section: near the end, look for NFT keywords
+  // If found, use that position; otherwise use last 30-45 seconds
+  const nftKeywords = ['nft', 'collection', 'floor', 'opensea', 'trending', 'bored ape', 'pudgy'];
+  const nftStartRatio = findSectionStartProportional(nftKeywords, 0.85) / effectiveDuration;
+  // NFT should be in last 30% of video
+  const nftStart = nftStartRatio > 0.7 
+    ? nftStartRatio * effectiveDuration
+    : Math.max(effectiveDuration - 45, effectiveDuration * 0.85);
+  const nftEnd = Math.min(nftStart + 30, effectiveDuration - 10);
+  
+  // Debug logging for section timings
+  console.log(`📊 Section timings (Duration: ${effectiveDuration.toFixed(1)}s):`);
+  console.log(`   Intro: 0-${introEnd.toFixed(1)}s`);
+  console.log(`   Price: ${priceStart.toFixed(1)}-${priceEnd.toFixed(1)}s (${((priceStart/effectiveDuration)*100).toFixed(1)}% of video)`);
+  console.log(`   NFT: ${nftStart.toFixed(1)}-${nftEnd.toFixed(1)}s (${((nftStart/effectiveDuration)*100).toFixed(1)}% of video)`);
   
   // Helper function to escape text for FFmpeg drawtext
+  // Escape: backslashes, single quotes, colons, square brackets, and percent signs
+  // Note: % must be escaped as %% because FFmpeg uses % for variable substitution
   const escapeText = (text: string): string => {
-    return text.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/:/g, '\\:');
+    return text
+      .replace(/\\/g, '\\\\')  // Escape backslashes
+      .replace(/'/g, "\\'")    // Escape single quotes
+      .replace(/"/g, '\\"')     // Escape double quotes
+      .replace(/:/g, '\\:')    // Escape colons (filter separator)
+      .replace(/\[/g, '\\[')   // Escape square brackets
+      .replace(/\]/g, '\\]')   // Escape square brackets
+      .replace(/%/g, '%%');    // Escape percent signs (FFmpeg variable syntax)
   };
 
   // Build text overlay filters for price data
   // Position titles near top (y=60-80) to avoid overlap with captions at bottom (y~640)
   let priceOverlays: string[] = [];
   if (script.priceUpdate && script.priceUpdate.topWinners.length > 0) {
-    // Market sentiment label (top) - Bitcoin orange - moved to top
+    // Market sentiment label (top) - White and bold - Shown at the START of price update section (first 6 seconds)
+    const priceTitleDuration = 6;
+    const priceTitleEnd = Math.min(priceStart + priceTitleDuration, priceEnd);
     const sentimentText = escapeText(`Market: ${script.priceUpdate.marketSentiment.toUpperCase()}`);
     priceOverlays.push(
-      `drawtext=text='${sentimentText}':fontsize=36:fontcolor=0xF7931A:x=(w-text_w)/2:y=60:enable='between(t\\,${priceStart}\\,${priceEnd})'`
+      `drawtext=text='${sentimentText}':fontsize=42:fontcolor=0xFFFFFF:borderw=3:bordercolor=0x000000:x=(w-text_w)/2:y=60:enable='between(t\\,${priceStart}\\,${priceTitleEnd})'`
     );
     
     // Winners section (below title) - Green
@@ -528,9 +606,11 @@ async function createVideoWithStaticAvatar(
   // Position titles near top (y=60-80) to avoid overlap with captions at bottom (y~640)
   let nftOverlays: string[] = [];
   if (script.nftUpdate && script.nftUpdate.trendingCollections.length > 0) {
-    // NFT label - Bitcoin orange - moved to top
+    // NFT label - White and bold - Shown at the START of NFT section (first 6 seconds)
+    const nftTitleDuration = 6;
+    const nftTitleEnd = Math.min(nftStart + nftTitleDuration, nftEnd);
     nftOverlays.push(
-      `drawtext=text='TRENDING NFTs':fontsize=48:fontcolor=0xF7931A:x=(w-text_w)/2:y=60:enable='between(t\\,${nftStart}\\,${nftEnd})'`
+      `drawtext=text='NFT UPDATE':fontsize=54:fontcolor=0xFFFFFF:borderw=3:bordercolor=0x000000:x=(w-text_w)/2:y=60:enable='between(t\\,${nftStart}\\,${nftTitleEnd})'`
     );
     
     const nfts = script.nftUpdate.trendingCollections.slice(0, 3);
@@ -545,8 +625,254 @@ async function createVideoWithStaticAvatar(
     });
   }
   
+  // Build topic title overlays for main news section
+  // Calculate when each topic appears in the script and show titles
+  // Use textfile to avoid FFmpeg parsing issues with special characters (colons, quotes, etc.)
+  // Topics are limited to 3 words max and are scheduled to not overlap
+  let topicOverlays: string[] = [];
+  const topicTextFiles: string[] = []; // Track files to clean up later
+  if (script.topics && script.topics.length > 0) {
+    const scriptLines = script.script.split('\n').filter(line => line.trim().length > 0);
+    const mainNewsStart = priceEnd; // After price update section
+    const mainNewsEnd = nftStart; // Before NFT section
+    const availableTime = Math.max(0, mainNewsEnd - mainNewsStart);
+    const topicFileBaseTimestamp = Date.now(); // Use single timestamp for all topic files
+    
+    // Duration for each topic title (seconds)
+    const topicDuration = 6;
+    // Minimum gap between topics (seconds)
+    const topicGap = 1;
+    
+    // Use script words for keyword matching
+    const fullScript = script.script;
+    const scriptWords = fullScript.split(/\s+/).filter(w => w.trim().length > 0);
+    
+    // First pass: Calculate ideal positions for all topics based on script location
+    interface TopicSchedule {
+      topic: typeof script.topics[0];
+      truncatedTitle: string;
+      idealStart: number;
+      index: number;
+    }
+    
+    const topicSchedules: TopicSchedule[] = [];
+    
+    for (let index = 0; index < script.topics.length; index++) {
+      const topic = script.topics[index];
+      
+      // Truncate topic title to maximum 3 words
+      const words = topic.title.split(' ').filter(w => w.trim().length > 0);
+      const truncatedTitle = words.slice(0, 3).join(' ');
+      
+      // Find where this topic appears in the script - look for the START of the topic section
+      const topicKeywords = truncatedTitle.split(' ').slice(0, 3).filter(w => w.length > 2);
+      let foundWordIndex = -1;
+      
+      // Search through script words to find when topic starts being discussed
+      // Look for the first occurrence where multiple keywords appear together
+      for (let i = 0; i < scriptWords.length; i++) {
+        // Check a window of words (current word + next 10 words) for topic keywords
+        const window = scriptWords.slice(i, Math.min(i + 10, scriptWords.length))
+          .join(' ')
+          .toLowerCase();
+        
+        const matchingKeywords = topicKeywords.filter(keyword => 
+          window.includes(keyword.toLowerCase())
+        );
+        
+        // Require at least 2 keywords (or all if less than 2) to match for better accuracy
+        if (matchingKeywords.length >= Math.min(2, topicKeywords.length)) {
+          foundWordIndex = i;
+          break;
+        }
+      }
+      
+      // If not found with multiple keywords, try with single keyword
+      if (foundWordIndex === -1) {
+        for (let i = 0; i < scriptWords.length; i++) {
+          const word = scriptWords[i].toLowerCase().replace(/[^\w]/g, '');
+          if (topicKeywords.some(keyword => word.includes(keyword.toLowerCase()) || keyword.toLowerCase().includes(word))) {
+            foundWordIndex = i;
+            break;
+          }
+        }
+      }
+      
+      // Calculate ideal start time based on proportional script position
+      // Use script position ratio to map to actual video time
+      let idealStart: number;
+      if (foundWordIndex >= 0) {
+        // Calculate position as ratio of total script
+        const scriptPositionRatio = foundWordIndex / scriptWords.length;
+        
+        // Map script position to video time
+        // Topics should be in the main news section (between priceEnd and nftStart)
+        // But if found position suggests it's in main news, use that
+        const topicTimeFromStart = scriptPositionRatio * effectiveDuration;
+        
+        // If topic time is in main news section range, use it
+        if (topicTimeFromStart >= mainNewsStart && topicTimeFromStart < mainNewsEnd) {
+          idealStart = topicTimeFromStart;
+        } else if (topicTimeFromStart < mainNewsStart) {
+          // Topic appears before main news, use start of main news
+          idealStart = mainNewsStart;
+        } else {
+          // Topic appears after main news, distribute proportionally in main news
+          const mainNewsRatio = (topicTimeFromStart - mainNewsStart) / (mainNewsEnd - mainNewsStart);
+          idealStart = mainNewsStart + (mainNewsRatio * availableTime);
+        }
+      } else {
+        // Topic not found, distribute evenly in main news section
+        const scriptPosition = (index + 1) / (script.topics.length + 1);
+        idealStart = mainNewsStart + (scriptPosition * availableTime);
+      }
+      
+      // Ensure ideal start is within main news section
+      idealStart = Math.max(mainNewsStart, Math.min(idealStart, mainNewsEnd - topicDuration));
+      
+      topicSchedules.push({
+        topic,
+        truncatedTitle,
+        idealStart,
+        index
+      });
+    }
+    
+    // Sort by ideal start time to process in chronological order
+    topicSchedules.sort((a, b) => a.idealStart - b.idealStart);
+    
+    // Second pass: Schedule topics to appear at the start of their sections
+    // Priority: Show topics at their ideal start time (when they're discussed)
+    // Only shift if absolutely necessary to prevent overlap
+    const scheduledTopics: Array<{ schedule: TopicSchedule; start: number; end: number }> = [];
+    let lastTopicEnd = mainNewsStart;
+    
+    for (const schedule of topicSchedules) {
+      // Start with ideal position (when topic is actually discussed)
+      let topicStart = schedule.idealStart;
+      
+      // Only shift forward if it would overlap with previous topic
+      // This ensures topics appear at the start of their sections
+      if (topicStart < lastTopicEnd + topicGap) {
+        // Only shift if absolutely necessary - prefer showing at ideal time
+        // But ensure minimum gap to avoid visual overlap
+        topicStart = lastTopicEnd + topicGap;
+      }
+      
+      const topicEnd = Math.min(topicStart + topicDuration, mainNewsEnd);
+      
+      // Only schedule if it fits within the main news section
+      if (topicStart >= mainNewsStart && topicStart < mainNewsEnd && topicEnd > topicStart) {
+        scheduledTopics.push({
+          schedule,
+          start: topicStart,
+          end: topicEnd
+        });
+        lastTopicEnd = topicEnd;
+      }
+    }
+    
+    // If we couldn't fit all topics with ideal positions, redistribute remaining ones evenly
+    if (scheduledTopics.length < topicSchedules.length && lastTopicEnd < mainNewsEnd) {
+      const unscheduled = topicSchedules.filter(
+        s => !scheduledTopics.some(st => st.schedule.index === s.index)
+      );
+      
+      if (unscheduled.length > 0) {
+        const remainingTime = mainNewsEnd - lastTopicEnd - topicGap;
+        const timePerTopic = remainingTime / unscheduled.length;
+        
+        unscheduled.forEach((schedule, unscheduledIndex) => {
+          const topicStart = lastTopicEnd + topicGap + (unscheduledIndex * timePerTopic);
+          const topicEnd = Math.min(topicStart + topicDuration, mainNewsEnd);
+          
+          if (topicStart < mainNewsEnd && topicEnd > topicStart) {
+            scheduledTopics.push({
+              schedule,
+              start: topicStart,
+              end: topicEnd
+            });
+            lastTopicEnd = topicEnd;
+          }
+        });
+      }
+    }
+    
+    // Sort scheduled topics by their original index to maintain order
+    scheduledTopics.sort((a, b) => a.schedule.index - b.schedule.index);
+    
+    // Create overlays for all scheduled topics
+    for (const scheduled of scheduledTopics) {
+      const { schedule, start: topicStart, end: topicEnd } = scheduled;
+      
+      // Write truncated topic title to a text file to avoid escaping issues
+      const topicTextFile = path.join(outputDir, `topic_${topicFileBaseTimestamp}_${schedule.index}.txt`);
+      await fs.writeFile(topicTextFile, schedule.truncatedTitle, 'utf-8');
+      topicTextFiles.push(topicTextFile);
+      
+      // Escape the textfile path for FFmpeg (same pattern as ticker file)
+      const escapedTopicFile = topicTextFile.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'");
+      topicOverlays.push(
+        `drawtext=textfile='${escapedTopicFile}':fontsize=48:fontcolor=0xFFFFFF:borderw=3:bordercolor=0x000000:x=(w-text_w)/2:y=60:enable='between(t\\,${topicStart}\\,${topicEnd})'`
+      );
+    }
+  }
+  
+  // Build scrolling ticker tape at bottom with crypto prices
+  // Use textfile to avoid FFmpeg parsing issues with very long inline text
+  let tickerOverlay: string | null = null;
+  let tickerTextFile: string | null = null;
+  if (script.priceUpdate && script.priceUpdate.tickerCoins && script.priceUpdate.tickerCoins.length > 0) {
+    // Format ticker text: "BTC $45,230 +5.2% | ETH $2,850 +4.8% | ..."
+    const tickerItems = script.priceUpdate.tickerCoins.map(coin => {
+      // Format price based on value
+      let priceFormatted: string;
+      if (coin.price >= 1000) {
+        priceFormatted = `$${(coin.price / 1000).toFixed(2)}K`;
+      } else if (coin.price >= 1) {
+        priceFormatted = `$${coin.price.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
+      } else {
+        priceFormatted = `$${coin.price.toFixed(4)}`;
+      }
+      
+      // Use "pct" instead of "%" to avoid FFmpeg variable syntax issues
+      const changeFormatted = coin.change24h >= 0 
+        ? `+${coin.change24h.toFixed(1)}pct`
+        : `${coin.change24h.toFixed(1)}pct`;
+      
+      // Format: "BTC $45.23K +5.2pct"
+      return `${coin.symbol} ${priceFormatted} ${changeFormatted}`;
+    });
+    
+    // Join with separators and repeat for seamless loop
+    const tickerText = `${tickerItems.join('  •  ')}  •  `;
+    const tickerTextRepeated = tickerText + tickerText; // Repeat for seamless scrolling
+    
+    // Write ticker text to a file to avoid FFmpeg parsing issues with long inline text
+    tickerTextFile = path.join(outputDir, `ticker_${Date.now()}.txt`);
+    await fs.writeFile(tickerTextFile, tickerTextRepeated, 'utf-8');
+    
+    // Position ticker just above captions (captions at y~645 with MarginV=75, ticker at y=600)
+    // Scroll speed: 60 pixels per second (adjust for desired speed)
+    const scrollSpeed = 60;
+    const tickerY = 600;
+    
+    // Escape the textfile path for FFmpeg
+    const escapedTickerTextFile = tickerTextFile.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'");
+    
+    // Create scrolling ticker using FFmpeg drawtext with textfile parameter
+    // Standard scrolling expression: x=w-mod(t*SPEED, w+tw) creates right-to-left scrolling
+    // Use semi-transparent black background box for readability
+    // Note: In filter chains, commas in expressions must be escaped as \, 
+    // Using 'tw' (text width) which is the standard FFmpeg variable
+    tickerOverlay = `drawtext=textfile='${escapedTickerTextFile}':fontsize=26:fontcolor=0xFFFFFF:borderw=2:bordercolor=0x000000:x='w-mod(t*${scrollSpeed}\\,w+tw)':y=${tickerY}:box=1:boxcolor=0x000000@0.8:boxborderw=8`;
+  }
+  
   // Combine all overlays
-  const allOverlays = [...priceOverlays, ...nftOverlays];
+  const allOverlays: string[] = [...priceOverlays, ...nftOverlays, ...topicOverlays];
+  if (tickerOverlay) {
+    allOverlays.push(tickerOverlay);
+  }
   
   // Create video using FFmpeg with subtitles and text overlays
   // Escape paths properly for shell
@@ -560,7 +886,10 @@ async function createVideoWithStaticAvatar(
   if (allOverlays.length > 0) {
     filterChain += ',' + allOverlays.join(',');
   }
-  filterChain += `,subtitles='${escapedSubtitlePath}':force_style='Alignment=2,MarginV=80,Outline=4,Shadow=2,FontSize=52,Bold=1,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,BackColour=&HC0000000,SecondaryColour=&H1A93F7',format=yuv420p`;
+  
+  // Add subtitles filter - styles are already set in the ASS file, no need for force_style
+  // This avoids FFmpeg parsing issues with comma-separated force_style values
+  filterChain += `,subtitles='${escapedSubtitlePath}',format=yuv420p`;
   
   const ffmpegCommand = `ffmpeg -y -loop 1 -i "${escapedAvatarPath}" -i "${escapedAudioPath}" ` +
     `-vf "${filterChain}" ` +
@@ -571,7 +900,11 @@ async function createVideoWithStaticAvatar(
     console.log('🎬 Creating video with FFmpeg...');
     console.log(`Filter chain length: ${filterChain.length} characters`);
     if (allOverlays.length > 0) {
-      console.log(`📊 Adding ${allOverlays.length} text overlays (${priceOverlays.length} price, ${nftOverlays.length} NFT)`);
+      const tickerCount = tickerOverlay ? 1 : 0;
+      console.log(`📊 Adding ${allOverlays.length} text overlays (${priceOverlays.length} price, ${nftOverlays.length} NFT, ${topicOverlays.length} topic titles${tickerCount > 0 ? `, ${tickerCount} ticker` : ''})`);
+      if (tickerOverlay) {
+        console.log(`📈 Ticker tape: ${script.priceUpdate?.tickerCoins?.length || 0} coins scrolling at bottom`);
+      }
     }
     const result = await execAsync(ffmpegCommand);
     if (result.stderr) {
@@ -589,7 +922,26 @@ async function createVideoWithStaticAvatar(
     console.error('❌ FFmpeg error:', error);
     const errorMessage = error?.stderr || error?.message || String(error);
     console.error('Full error details:', errorMessage);
-    throw new Error(`Failed to create video: ${errorMessage.substring(0, 200)}. Make sure FFmpeg is installed: https://ffmpeg.org/download.html`);
+    
+    // Log the filter chain for debugging (truncated if too long)
+    if (filterChain.length < 500) {
+      console.error('Filter chain that failed:', filterChain);
+    } else {
+      console.error('Filter chain length:', filterChain.length, 'characters');
+      console.error('First 200 chars:', filterChain.substring(0, 200));
+      console.error('Last 200 chars:', filterChain.substring(filterChain.length - 200));
+    }
+    
+    // Extract actual error message (skip version info)
+    const errorLines = errorMessage.split('\n').filter((line: string) => 
+      line.toLowerCase().includes('error') || 
+      line.toLowerCase().includes('failed') ||
+      line.toLowerCase().includes('invalid') ||
+      line.toLowerCase().includes('unrecognized')
+    );
+    const actualError = errorLines.length > 0 ? errorLines[0] : errorMessage.substring(0, 300);
+    
+    throw new Error(`Failed to create video: ${actualError}. Make sure FFmpeg is installed: https://ffmpeg.org/download.html`);
   }
 }
 
@@ -680,21 +1032,6 @@ async function createAvatarImage(outputDir: string): Promise<string> {
       ctx.font = 'bold 130px Arial';
       ctx.fillText('CB', centerX, centerY + 22);
 
-      // MATCH THUMBNAIL STYLE: "Crypto B" branding - simple white text (matching thumbnail)
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 60px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
-      
-      // Thin black outline (matching thumbnail style)
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth = 3;
-      ctx.strokeText('₿ Crypto B', centerX, 680);
-      
-      // White text
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillText('₿ Crypto B', centerX, 680);
-
       const buffer = canvas.toBuffer('image/png');
       await fs.writeFile(avatarPath, buffer);
 
@@ -748,7 +1085,6 @@ async function createAvatarImage(outputDir: string): Promise<string> {
   <circle cx="640" cy="300" r="160" fill="url(#avatarGrad)" filter="url(#glow)"/>
   <circle cx="640" cy="300" r="150" fill="url(#avatarGrad)"/>
   <text x="640" y="342" font-family="Arial, sans-serif" font-size="130" font-weight="bold" fill="#000000" text-anchor="middle" stroke="#ffffff" stroke-width="2">CB</text>
-  <text x="640" y="680" font-family="Arial, sans-serif" font-size="60" font-weight="bold" fill="#FFFFFF" text-anchor="middle" stroke="#000000" stroke-width="3">₿ Crypto B</text>
 </svg>`;
       
       const sharpModule = await import('sharp');
@@ -1062,6 +1398,12 @@ export async function generateThumbnail(
       ctx.fillStyle = thumbnailDesign.textColor;
       ctx.fillText('₿ Crypto B', 1220, 680);
 
+      // Add Bitcoin orange border around the entire thumbnail
+      const borderWidth = 8; // 8px border
+      ctx.strokeStyle = '#F7931A'; // Bitcoin orange
+      ctx.lineWidth = borderWidth;
+      ctx.strokeRect(borderWidth / 2, borderWidth / 2, 1280 - borderWidth, 720 - borderWidth);
+
       // Save thumbnail
       const buffer = canvas.toBuffer('image/png');
       await fs.writeFile(thumbnailPath, buffer);
@@ -1278,7 +1620,7 @@ export async function generateThumbnail(
     </radialGradient>
     ` : ''}
   </defs>
-  <rect width="1280" height="720" fill="url(#bgGrad)"/>
+  <rect width="1280" height="720" fill="url(#bgGrad)" stroke="#F7931A" stroke-width="8"/>
   <ellipse cx="1100" cy="100" rx="350" ry="350" fill="url(#accentGrad)"/>
   ${design.visualElements.includes('glow') ? `<ellipse cx="640" cy="360" rx="400" ry="400" fill="url(#glowGrad)"/>` : ''}
   ${design.visualElements.includes('grid') ? `
