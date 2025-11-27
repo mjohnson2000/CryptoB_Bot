@@ -573,31 +573,42 @@ async function createVideoWithStaticAvatar(
   // Position titles near top (y=60-80) to avoid overlap with captions at bottom (y~640)
   let priceOverlays: string[] = [];
   if (script.priceUpdate && script.priceUpdate.topWinners.length > 0) {
-    // Market sentiment label (top) - White and bold - Shown at the START of price update section (first 6 seconds)
+    // Market sentiment label (top) - White and bold with fade-in animation and glow
+    // Shown at the START of price update section (first 6 seconds)
     const priceTitleDuration = 6;
     const priceTitleEnd = Math.min(priceStart + priceTitleDuration, priceEnd);
+    const fadeInDuration = 0.5; // 0.5 second fade-in
     const sentimentText = escapeText(`Market: ${script.priceUpdate.marketSentiment.toUpperCase()}`);
+    
+    // Fade-in animation: alpha goes from 0 to 1 over fadeInDuration
+    const fadeInEnd = priceStart + fadeInDuration;
     priceOverlays.push(
-      `drawtext=text='${sentimentText}':fontsize=42:fontcolor=0xFFFFFF:borderw=3:bordercolor=0x000000:x=(w-text_w)/2:y=60:enable='between(t\\,${priceStart}\\,${priceTitleEnd})'`
+      `drawtext=text='${sentimentText}':fontsize=42:fontcolor=0xFFFFFF:borderw=3:bordercolor=0x000000:shadowx=2:shadowy=2:shadowcolor=0x000000@0.8:x=(w-text_w)/2:y=60:alpha='if(between(t\\,${priceStart}\\,${fadeInEnd})\\,(t-${priceStart})/${fadeInDuration}\\,1)':enable='between(t\\,${priceStart}\\,${priceTitleEnd})'`
     );
     
-    // Winners section (below title) - Green
+    // Winners section (below title) - Green with improved spacing and glow
     const winners = script.priceUpdate.topWinners.slice(0, 3);
     winners.forEach((winner, index) => {
-      const yPos = 120 + (index * 60); // Start below title
+      const yPos = 130 + (index * 70); // Improved spacing: 130 start, 70px between items
       const text = escapeText(`${winner.symbol}  +${winner.change24h.toFixed(1)}%`);
+      // Add fade-in with slight delay for each item
+      const itemStart = priceStart + 0.2 + (index * 0.1); // Staggered fade-in
+      const itemFadeEnd = itemStart + fadeInDuration;
       priceOverlays.push(
-        `drawtext=text='${text}':fontsize=48:fontcolor=0x00FF00:x=(w-text_w)/2:y=${yPos}:enable='between(t\\,${priceStart}\\,${priceEnd})'`
+        `drawtext=text='${text}':fontsize=48:fontcolor=0x00FF00:borderw=2:bordercolor=0x000000:shadowx=2:shadowy=2:shadowcolor=0x00FF00@0.5:x=(w-text_w)/2:y=${yPos}:alpha='if(between(t\\,${itemStart}\\,${itemFadeEnd})\\,(t-${itemStart})/${fadeInDuration}\\,1)':enable='between(t\\,${priceStart}\\,${priceEnd})'`
       );
     });
     
-    // Losers section (below winners) - Red
+    // Losers section (below winners) - Red with improved spacing and glow
     const losers = script.priceUpdate.topLosers.slice(0, 3);
     losers.forEach((loser, index) => {
-      const yPos = 300 + (index * 60); // Positioned below winners
+      const yPos = 340 + (index * 70); // Improved spacing: 340 start (more space from winners), 70px between
       const text = escapeText(`${loser.symbol}  ${loser.change24h.toFixed(1)}%`);
+      // Add fade-in with slight delay for each item
+      const itemStart = priceStart + 0.3 + (index * 0.1); // Staggered fade-in
+      const itemFadeEnd = itemStart + fadeInDuration;
       priceOverlays.push(
-        `drawtext=text='${text}':fontsize=48:fontcolor=0xFF0000:x=(w-text_w)/2:y=${yPos}:enable='between(t\\,${priceStart}\\,${priceEnd})'`
+        `drawtext=text='${text}':fontsize=48:fontcolor=0xFF0000:borderw=2:bordercolor=0x000000:shadowx=2:shadowy=2:shadowcolor=0xFF0000@0.5:x=(w-text_w)/2:y=${yPos}:alpha='if(between(t\\,${itemStart}\\,${itemFadeEnd})\\,(t-${itemStart})/${fadeInDuration}\\,1)':enable='between(t\\,${priceStart}\\,${priceEnd})'`
       );
     });
   }
@@ -606,21 +617,30 @@ async function createVideoWithStaticAvatar(
   // Position titles near top (y=60-80) to avoid overlap with captions at bottom (y~640)
   let nftOverlays: string[] = [];
   if (script.nftUpdate && script.nftUpdate.trendingCollections.length > 0) {
-    // NFT label - White and bold - Shown at the START of NFT section (first 6 seconds)
+    // NFT label - White and bold with fade-in animation and glow
+    // Shown at the START of NFT section (first 6 seconds)
     const nftTitleDuration = 6;
     const nftTitleEnd = Math.min(nftStart + nftTitleDuration, nftEnd);
+    const fadeInDuration = 0.5; // 0.5 second fade-in
+    
+    // Fade-in animation for title
+    const fadeInEnd = nftStart + fadeInDuration;
     nftOverlays.push(
-      `drawtext=text='NFT UPDATE':fontsize=54:fontcolor=0xFFFFFF:borderw=3:bordercolor=0x000000:x=(w-text_w)/2:y=60:enable='between(t\\,${nftStart}\\,${nftTitleEnd})'`
+      `drawtext=text='NFT UPDATE':fontsize=54:fontcolor=0xFFFFFF:borderw=3:bordercolor=0x000000:shadowx=2:shadowy=2:shadowcolor=0x000000@0.8:x=(w-text_w)/2:y=60:alpha='if(between(t\\,${nftStart}\\,${fadeInEnd})\\,(t-${nftStart})/${fadeInDuration}\\,1)':enable='between(t\\,${nftStart}\\,${nftTitleEnd})'`
     );
     
     const nfts = script.nftUpdate.trendingCollections.slice(0, 3);
     nfts.forEach((nft, index) => {
-      const yPos = 120 + (index * 80); // Start below title
+      const yPos = 130 + (index * 85); // Improved spacing: 130 start, 85px between items
       const changeText = nft.floorPriceChange24h > 0 ? `+${nft.floorPriceChange24h.toFixed(1)}%` : `${nft.floorPriceChange24h.toFixed(1)}%`;
       const text = escapeText(`${nft.name}: ${nft.floorPrice.toFixed(2)} ETH (${changeText})`);
       const color = nft.floorPriceChange24h > 0 ? '0x00FF00' : '0xFF0000';
+      const shadowColor = nft.floorPriceChange24h > 0 ? '0x00FF00@0.5' : '0xFF0000@0.5';
+      // Add fade-in with slight delay for each item
+      const itemStart = nftStart + 0.2 + (index * 0.1); // Staggered fade-in
+      const itemFadeEnd = itemStart + fadeInDuration;
       nftOverlays.push(
-        `drawtext=text='${text}':fontsize=42:fontcolor=${color}:x=(w-text_w)/2:y=${yPos}:enable='between(t\\,${nftStart}\\,${nftEnd})'`
+        `drawtext=text='${text}':fontsize=42:fontcolor=${color}:borderw=2:bordercolor=0x000000:shadowx=2:shadowy=2:shadowcolor=${shadowColor}:x=(w-text_w)/2:y=${yPos}:alpha='if(between(t\\,${itemStart}\\,${itemFadeEnd})\\,(t-${itemStart})/${fadeInDuration}\\,1)':enable='between(t\\,${nftStart}\\,${nftEnd})'`
       );
     });
   }
@@ -801,7 +821,8 @@ async function createVideoWithStaticAvatar(
     // Sort scheduled topics by their original index to maintain order
     scheduledTopics.sort((a, b) => a.schedule.index - b.schedule.index);
     
-    // Create overlays for all scheduled topics
+    // Create overlays for all scheduled topics with fade-in animations and glow
+    const fadeInDuration = 0.5; // 0.5 second fade-in
     for (const scheduled of scheduledTopics) {
       const { schedule, start: topicStart, end: topicEnd } = scheduled;
       
@@ -812,8 +833,11 @@ async function createVideoWithStaticAvatar(
       
       // Escape the textfile path for FFmpeg (same pattern as ticker file)
       const escapedTopicFile = topicTextFile.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'");
+      
+      // Fade-in animation: alpha goes from 0 to 1 over fadeInDuration
+      const fadeInEnd = topicStart + fadeInDuration;
       topicOverlays.push(
-        `drawtext=textfile='${escapedTopicFile}':fontsize=48:fontcolor=0xFFFFFF:borderw=3:bordercolor=0x000000:x=(w-text_w)/2:y=60:enable='between(t\\,${topicStart}\\,${topicEnd})'`
+        `drawtext=textfile='${escapedTopicFile}':fontsize=48:fontcolor=0xFFFFFF:borderw=3:bordercolor=0x000000:shadowx=2:shadowy=2:shadowcolor=0x000000@0.8:x=(w-text_w)/2:y=60:alpha='if(between(t\\,${topicStart}\\,${fadeInEnd})\\,(t-${topicStart})/${fadeInDuration}\\,1)':enable='between(t\\,${topicStart}\\,${topicEnd})'`
       );
     }
   }
@@ -1277,6 +1301,30 @@ export async function generateThumbnail(
     
     const thumbnailPath = path.join(outputDir, `thumbnail_${Date.now()}.png`);
 
+    // Helper function to remove all unicode characters (emojis, symbols) from title
+    const removeUnicodeFromTitle = (title: string): string => {
+      // Remove all unicode characters except ASCII letters, numbers, spaces, and basic punctuation
+      // This keeps: A-Z, a-z, 0-9, spaces, and basic punctuation like . , ! ? - ' "
+      return title
+        .replace(/[\u{1F300}-\u{1F9FF}]/gu, '') // Emoticons & Symbols
+        .replace(/[\u{2600}-\u{26FF}]/gu, '') // Miscellaneous Symbols
+        .replace(/[\u{2700}-\u{27BF}]/gu, '') // Dingbats
+        .replace(/[\u{1F600}-\u{1F64F}]/gu, '') // Emoticons
+        .replace(/[\u{1F680}-\u{1F6FF}]/gu, '') // Transport & Map
+        .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '') // Flags
+        .replace(/[\u{1F900}-\u{1F9FF}]/gu, '') // Supplemental Symbols
+        .replace(/[\u{1FA00}-\u{1FA6F}]/gu, '') // Chess Symbols
+        .replace(/[\u{1FA70}-\u{1FAFF}]/gu, '') // Symbols and Pictographs Extended-A
+        .replace(/[\u{2190}-\u{21FF}]/gu, '') // Arrows
+        .replace(/[\u{2300}-\u{23FF}]/gu, '') // Miscellaneous Technical
+        .replace(/[\u{2B50}-\u{2B55}]/gu, '') // Miscellaneous Symbols and Arrows
+        .replace(/[\u{3030}-\u{303F}]/gu, '') // CJK Symbols and Punctuation
+        .replace(/[\u{3297}-\u{3299}]/gu, '') // CJK Compatibility
+        .replace(/[^\x00-\x7F]/g, '') // Remove any remaining non-ASCII characters
+        .replace(/\s+/g, ' ') // Clean up multiple spaces
+        .trim();
+    };
+
     // Generate AI-powered thumbnail design
     const { generateThumbnailDesign } = await import('./aiService.js');
     let thumbnailDesign;
@@ -1366,6 +1414,9 @@ export async function generateThumbnail(
       // Use thumbnail title (4 words max, AI-generated)
       let titleToUse = script.thumbnailTitle || script.title;
       
+      // Remove all unicode characters (emojis, symbols) from title
+      titleToUse = removeUnicodeFromTitle(titleToUse);
+      
       // Ensure it's 4 words max
       const words = titleToUse.split(/\s+/).filter(w => w.length > 0);
       if (words.length > 4) {
@@ -1381,22 +1432,28 @@ export async function generateThumbnail(
         titleToUse = titleToUse.replace(/\s*["']\s*/g, ' '); // Remove standalone quotes
       }
       
-      // Calculate text sizing - adaptive font size to ensure it fits
+      // Calculate text sizing - maximize font size while leaving 20px at bottom
       const textMaxWidth = 1100; // Full width minus padding
-      let fontSize = 180; // Start with large, bold font (doubled from 90)
-      const minFontSize = 100; // Minimum font size (reduced to ensure all words fit)
-      const maxLines = 3; // Maximum lines allowed (increased to fit all words)
+      const thumbnailHeight = 720;
+      const bottomMargin = 20; // Always leave 20px at bottom
+      const topMargin = 115; // Space for "LATEST" badge (y=50, height=65)
+      const availableHeight = thumbnailHeight - topMargin - bottomMargin; // 585px available
       
-      // Try to fit the title with adaptive font sizing
+      let fontSize = 250; // Start with very large font
+      const minFontSize = 80; // Minimum font size
+      const maxLines = 5; // Allow more lines to maximize space usage
+      
+      // Try to fit the title with maximum font size
       let titleLines: string[] = [];
       let fits = false;
+      let optimalFontSize = minFontSize;
       
       while (fontSize >= minFontSize && !fits) {
         titleLines = wrapText(ctx, titleToUse, textMaxWidth, fontSize);
         
         // Check if it fits within max lines
         if (titleLines.length <= maxLines) {
-          // Double-check each line actually fits
+          // Double-check each line actually fits horizontally
           let allLinesFit = true;
           ctx.font = `bold ${fontSize}px Arial`;
           for (const line of titleLines) {
@@ -1406,19 +1463,28 @@ export async function generateThumbnail(
               break;
             }
           }
+          
           if (allLinesFit) {
+            // Check if it fits vertically (with 20px bottom margin)
+            const lineHeight = fontSize * 1.2;
+            const totalTextHeight = titleLines.length * lineHeight;
+            
+            if (totalTextHeight <= availableHeight) {
             fits = true;
+              optimalFontSize = fontSize;
             break;
+            }
           }
         }
         
         // Reduce font size and try again
-        fontSize -= 10;
+        fontSize -= 5;
       }
       
-      // If still doesn't fit, use the best attempt and truncate if needed
+      // Use the optimal font size
+      fontSize = optimalFontSize;
       if (!fits) {
-        fontSize = minFontSize;
+        // If we didn't find a fit, use the last attempt
         titleLines = wrapText(ctx, titleToUse, textMaxWidth, fontSize);
         // Ensure we don't exceed max lines
         if (titleLines.length > maxLines) {
@@ -1437,11 +1503,13 @@ export async function generateThumbnail(
         }
       }
       
-      // Position title in center area (spans both dark and orange sides)
+      // Position title to maximize space - bottom at 725px (moved down by 25px total from original)
       // Calculate line height based on actual font size (1.2x for spacing)
       const lineHeight = fontSize * 1.2;
       const totalTextHeight = titleLines.length * lineHeight;
-      const startY = 360 - (totalTextHeight / 2) + (lineHeight / 2);
+      // Position so bottom line is at 725px (moved down by 15px more)
+      const bottomY = thumbnailHeight - bottomMargin + 25; // 725px (moved down by 25px total: 10px + 15px)
+      const startY = bottomY - totalTextHeight + (lineHeight / 2);
       let yPos = startY;
       
       titleLines.forEach((line: string, index: number) => {
@@ -1453,18 +1521,21 @@ export async function generateThumbnail(
         // PROVEN STYLE: Simple white text with minimal black outline
         // This is what successful crypto channels use
         
+        // Title is centered at x=640 (center of 1280px thumbnail) for equal space on both sides
+        const centerX = 640; // Exact center of 1280px wide thumbnail
+        
         // Step 1: Draw ONE subtle shadow (not multiple)
         ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-        ctx.fillText(line, 641, yPos + 3);
+        ctx.fillText(line, centerX, yPos + 3);
         
         // Step 2: Draw thin black stroke for definition
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 3; // Thin stroke
-        ctx.strokeText(line, 640, yPos);
+        ctx.strokeText(line, centerX, yPos);
         
         // Step 3: Draw text using AI-specified color for maximum impact
         ctx.fillStyle = thumbnailDesign.textColor; // AI-optimized text color
-        ctx.fillText(line, 640, yPos);
+        ctx.fillText(line, centerX, yPos);
         
         yPos += lineHeight;
       });
@@ -1475,18 +1546,18 @@ export async function generateThumbnail(
       const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
       const dateTimeStr = `${dateStr} • ${timeStr}`;
       
-      // Measure text first to size badge properly
-      ctx.font = 'bold 20px Arial';
+      // Measure text first to size badge properly (increased font size by 10px)
+      ctx.font = 'bold 30px Arial';
       ctx.textAlign = 'left';
       const textMetrics = ctx.measureText(dateTimeStr);
       const textWidth = textMetrics.width;
       
-      // Create badge in lower left - sized to fit text
+      // Create badge in upper right - sized to fit text
       const badgePadding = 18;
-      const dateBadgeX = 50;
-      const dateBadgeY = 625;
-      const dateBadgeWidth = textWidth + (badgePadding * 2);
-      const dateBadgeHeight = 45;
+      const dateBadgeWidth = textWidth + (badgePadding * 2) + 90; // Extended by 90px total (45px on each side)
+      const dateBadgeHeight = 55; // Increased from 45 to 55 (10px larger)
+      const dateBadgeX = 1280 - dateBadgeWidth - 50 - 29; // Position from right edge with 50px margin, moved 29px to the left (moved 28px to the right total)
+      const dateBadgeY = 55; // Upper right, moved down by 5px (from 50 to 55)
       
       const drawDateTimeBadge = (x: number, y: number, width: number, height: number, radius: number) => {
         ctx.beginPath();
@@ -1515,10 +1586,10 @@ export async function generateThumbnail(
       
       // Text color - PERFECTLY CENTERED (using AI-specified text color)
       ctx.fillStyle = thumbnailDesign.textColor;
-      ctx.font = 'bold 20px Arial';
+      ctx.font = 'bold 30px Arial'; // Increased from 20px to 30px (10px larger)
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(dateTimeStr, dateBadgeX + (dateBadgeWidth / 2), dateBadgeY + (dateBadgeHeight / 2) + 5);
+      ctx.fillText(dateTimeStr, dateBadgeX + (dateBadgeWidth / 2), dateBadgeY + (dateBadgeHeight / 2) + 11); // Moved up by 2px (from +13 to +11)
 
       // PROVEN STYLE: "LATEST" badge - simple and clean
       const drawBadge = (x: number, y: number, width: number, height: number, radius: number) => {
@@ -1535,12 +1606,80 @@ export async function generateThumbnail(
         ctx.closePath();
       };
       
-      // Accent color badge (using AI-specified accent color)
-      const badgeX = 50;
-      const badgeY = 50;
-      const badgeWidth = 200;
-      const badgeHeight = 65;
-      ctx.fillStyle = accentColor;
+      // CB Logo with Bitcoin orange circle (matching video avatar style) - doubled size
+      const logoRadius = 40; // Doubled from 20
+      const logoX = 55; // Moved 5px to the right (from 50)
+      const badgeY = 50; // Badge y position
+      const badgeHeight = 65; // Badge height
+      const logoY = badgeY + (badgeHeight / 2); // Vertically centered with badge
+      
+      // Outer glow - Bitcoin orange
+      const logoGlowGradient = ctx.createRadialGradient(logoX, logoY, 0, logoX, logoY, logoRadius + 12);
+      logoGlowGradient.addColorStop(0, 'rgba(247, 147, 26, 0.4)');
+      logoGlowGradient.addColorStop(0.5, 'rgba(247, 147, 26, 0.2)');
+      logoGlowGradient.addColorStop(1, 'rgba(247, 147, 26, 0)');
+      ctx.fillStyle = logoGlowGradient;
+      ctx.beginPath();
+      ctx.arc(logoX, logoY, logoRadius + 12, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Bitcoin orange gradient circle
+      const logoGradient = ctx.createRadialGradient(logoX - 14, logoY - 14, 0, logoX, logoY, logoRadius);
+      logoGradient.addColorStop(0, '#F7931A'); // Bitcoin orange
+      logoGradient.addColorStop(0.7, '#E8821A'); // Darker orange
+      logoGradient.addColorStop(1, '#D6711A'); // Deep orange
+      ctx.fillStyle = logoGradient;
+      ctx.beginPath();
+      ctx.arc(logoX, logoY, logoRadius, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Add inner highlight
+      const logoHighlightGradient = ctx.createRadialGradient(logoX - 12, logoY - 12, 0, logoX, logoY, logoRadius * 0.6);
+      logoHighlightGradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
+      logoHighlightGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = logoHighlightGradient;
+      ctx.beginPath();
+      ctx.arc(logoX, logoY, logoRadius * 0.6, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Draw "CB" text on logo
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      
+      // Shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.font = 'bold 36px Arial'; // Doubled from 18px
+      ctx.fillText('CB', logoX + 2, logoY + 14); // Moved down by 2px more (from +12 to +14)
+      
+      // Outline
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3; // Doubled from 1.5
+      ctx.strokeText('CB', logoX, logoY + 12); // Moved down by 2px more (from +10 to +12)
+      
+      // Main text
+      ctx.fillStyle = '#000000';
+      ctx.font = 'bold 36px Arial'; // Doubled from 18px
+      ctx.fillText('CB', logoX, logoY + 12); // Moved down by 2px more (from +10 to +12)
+      
+      // Bitcoin orange badge (matching logo gradient for consistency)
+      const logoSpacing = 15; // Space between logo and badge
+      const badgeX = logoX + logoRadius + logoSpacing; // Position after logo
+      
+      // Measure text to size badge properly
+      ctx.font = 'bold 34px Arial';
+      ctx.textAlign = 'left';
+      const badgeText = 'LATEST CRYPTO NEWS!';
+      const badgeTextMetrics = ctx.measureText(badgeText);
+      const badgeTextWidth = badgeTextMetrics.width;
+      const latestBadgePadding = 20; // Padding on each side
+      const badgeWidth = badgeTextWidth + (latestBadgePadding * 2);
+      
+      // Use the same gradient as the logo for visual consistency
+      const badgeGradient = ctx.createLinearGradient(badgeX, badgeY, badgeX, badgeY + badgeHeight);
+      badgeGradient.addColorStop(0, '#F7931A'); // Bitcoin orange (same as logo center)
+      badgeGradient.addColorStop(0.7, '#E8821A'); // Darker orange (same as logo)
+      badgeGradient.addColorStop(1, '#D6711A'); // Deep orange (same as logo edge)
+      ctx.fillStyle = badgeGradient;
       drawBadge(badgeX, badgeY, badgeWidth, badgeHeight, 10);
       ctx.fill();
       
@@ -1549,21 +1688,7 @@ export async function generateThumbnail(
       ctx.font = 'bold 34px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('LATEST', badgeX + (badgeWidth / 2), badgeY + (badgeHeight / 2) + 13);
-
-      // AI-ENHANCED: "Crypto B" branding - using AI-specified text color
-      ctx.font = 'bold 60px Arial';
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'bottom';
-      
-      // Thin black outline for contrast
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth = 3;
-      ctx.strokeText('₿ Crypto B', 1220, 680);
-      
-      // Text using AI-specified color
-      ctx.fillStyle = thumbnailDesign.textColor;
-      ctx.fillText('₿ Crypto B', 1220, 680);
+      ctx.fillText(badgeText, badgeX + (badgeWidth / 2), badgeY + (badgeHeight / 2) + 13);
 
       // Add Bitcoin orange border around the entire thumbnail
       const borderWidth = 8; // 8px border
@@ -1614,6 +1739,9 @@ export async function generateThumbnail(
       // Use thumbnail title (4 words max, AI-generated)
       let titleToUse = script.thumbnailTitle || script.title;
       
+      // Remove all unicode characters (emojis, symbols) from title
+      titleToUse = removeUnicodeFromTitle(titleToUse);
+      
       // Ensure it's 4 words max
       const words = titleToUse.split(/\s+/).filter(w => w.length > 0);
       if (words.length > 4) {
@@ -1638,14 +1766,21 @@ export async function generateThumbnail(
         return textWithoutEmojis.length * fontSize * 0.6;
       };
       
+      // Calculate text sizing - maximize font size while leaving 20px at bottom
       const textMaxWidth = 1100; // Full width minus padding
-      let fontSize = 180; // Start with large font
-      const minFontSize = 100; // Minimum font size
-      const maxLines = 3; // Allow up to 3 lines to fit all words
+      const thumbnailHeight = 720;
+      const bottomMargin = 20; // Always leave 20px at bottom
+      const topMargin = 115; // Space for "LATEST" badge (y=50, height=65)
+      const availableHeight = thumbnailHeight - topMargin - bottomMargin; // 585px available
       
-      // Try to fit the title with adaptive font sizing
+      let fontSize = 250; // Start with very large font
+      const minFontSize = 80; // Minimum font size
+      const maxLines = 5; // Allow more lines to maximize space usage
+      
+      // Try to fit the title with maximum font size
       let titleLines: string[] = [];
       let fits = false;
+      let optimalFontSize = minFontSize;
       
       while (fontSize >= minFontSize && !fits) {
         // Split title into words (preserving emojis)
@@ -1671,7 +1806,7 @@ export async function generateThumbnail(
           titleLines.push(currentLine);
         }
         
-        // Check if all lines fit and we're within maxLines
+        // Check if all lines fit horizontally and we're within maxLines
         if (titleLines.length <= maxLines) {
           let allLinesFit = true;
           for (const line of titleLines) {
@@ -1681,19 +1816,28 @@ export async function generateThumbnail(
               break;
             }
           }
+          
           if (allLinesFit) {
+            // Check if it fits vertically (with 20px bottom margin)
+            const lineSpacing = fontSize * 1.2;
+            const totalTextHeight = titleLines.length * lineSpacing;
+            
+            if (totalTextHeight <= availableHeight) {
             fits = true;
+              optimalFontSize = fontSize;
             break;
+            }
           }
         }
         
         // Reduce font size and try again
-        fontSize -= 10;
+        fontSize -= 5;
       }
       
-      // If still doesn't fit, use minimum size and ensure all words are included
+      // Use the optimal font size
+      fontSize = optimalFontSize;
       if (!fits) {
-        fontSize = minFontSize;
+        // If we didn't find a fit, use the last attempt
         const parts = titleToUse.split(/\s+/).filter(p => p.length > 0);
         titleLines = [];
         let currentLine = parts[0] || '';
@@ -1726,20 +1870,17 @@ export async function generateThumbnail(
       const line1 = escapedLines[0] || '';
       const line2 = escapedLines[1] || '';
       const line3 = escapedLines[2] || '';
+      const line4 = escapedLines[3] || '';
+      const line5 = escapedLines[4] || '';
       
       // Calculate line spacing based on font size
       const lineSpacing = fontSize * 1.2; // 1.2x font size for line height
       
-      // Calculate vertical position based on number of lines
-      const numLines = titleLines.length;
-      let textY: number;
-      if (numLines === 1) {
-        textY = 360;
-      } else if (numLines === 2) {
-        textY = 320;
-      } else {
-        textY = 280;
-      }
+      // Position title to maximize space - bottom at 725px (moved down by 25px total from original)
+      const totalTextHeight = titleLines.length * lineSpacing;
+      const bottomY = thumbnailHeight - bottomMargin + 25; // 725px (moved down by 25px total: 10px + 15px)
+      // Calculate starting Y position so bottom line aligns with bottomY
+      const textY = bottomY - totalTextHeight + (lineSpacing / 2);
       
       // Get date and time for SVG
       const now = new Date();
@@ -1796,16 +1937,45 @@ export async function generateThumbnail(
     ${Array.from({length: 15}, (_, i) => `<line x1="0" y1="${i * 50}" x2="1280" y2="${i * 50}" stroke="${accentColorRgb}" stroke-width="1"/>`).join('')}
   </g>
   ` : ''}
-  <rect x="50" y="50" width="200" height="65" rx="10" fill="${accentColorRgb}"/>
-  <text x="150" y="95.5" font-family="Arial, sans-serif" font-size="34" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" dominant-baseline="middle">LATEST</text>
+  <!-- CB Logo with Bitcoin orange circle (matching video avatar style) - doubled size -->
+  <defs>
+    <radialGradient id="logoGrad" cx="30%" cy="30%">
+      <stop offset="0%" style="stop-color:#F7931A;stop-opacity:1" />
+      <stop offset="70%" style="stop-color:#E8821A;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#D6711A;stop-opacity:1" />
+    </radialGradient>
+    <radialGradient id="logoGlow" cx="50%" cy="50%">
+      <stop offset="0%" style="stop-color:rgba(247,147,26,0.4);stop-opacity:1" />
+      <stop offset="50%" style="stop-color:rgba(247,147,26,0.2);stop-opacity:1" />
+      <stop offset="100%" style="stop-color:rgba(247,147,26,0);stop-opacity:1" />
+    </radialGradient>
+    <radialGradient id="logoHighlight" cx="30%" cy="30%">
+      <stop offset="0%" style="stop-color:rgba(255,255,255,0.3);stop-opacity:1" />
+      <stop offset="100%" style="stop-color:rgba(255,255,255,0);stop-opacity:1" />
+    </radialGradient>
+    <linearGradient id="badgeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#F7931A;stop-opacity:1" />
+      <stop offset="70%" style="stop-color:#E8821A;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#D6711A;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <circle cx="55" cy="82.5" r="52" fill="url(#logoGlow)"/>
+  <circle cx="55" cy="82.5" r="40" fill="url(#logoGrad)"/>
+  <circle cx="55" cy="82.5" r="24" fill="url(#logoHighlight)"/>
+  <text x="55" y="94.5" font-family="Arial, sans-serif" font-size="36" font-weight="bold" fill="#000000" text-anchor="middle" dominant-baseline="middle" stroke="#ffffff" stroke-width="3">CB</text>
+  <!-- Badge moved to the right after logo - using same gradient as logo for consistency -->
+  <rect x="110" y="50" width="420" height="65" rx="10" fill="url(#badgeGrad)"/>
+  <text x="320" y="95.5" font-family="Arial, sans-serif" font-size="34" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" dominant-baseline="middle">LATEST CRYPTO NEWS!</text>
+  <!-- Title centered at x=640 (center of 1280px thumbnail) for equal space on both sides -->
   <text x="640" y="${textY}" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" stroke="#000000" stroke-width="3">
     <tspan x="640" dy="0">${line1}</tspan>
     ${line2 ? `<tspan x="640" dy="${lineSpacing}">${line2}</tspan>` : ''}
     ${line3 ? `<tspan x="640" dy="${lineSpacing}">${line3}</tspan>` : ''}
+    ${line4 ? `<tspan x="640" dy="${lineSpacing}">${line4}</tspan>` : ''}
+    ${line5 ? `<tspan x="640" dy="${lineSpacing}">${line5}</tspan>` : ''}
   </text>
-  <rect x="50" y="625" width="260" height="45" rx="8" fill="rgba(0,0,0,0.8)" stroke="${accentColorRgb}" stroke-width="2"/>
-  <text x="180" y="652.5" font-family="Arial, sans-serif" font-size="20" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" dominant-baseline="middle">${escapeXml(dateTimeStr)}</text>
-  <text x="1220" y="680" font-family="Arial, sans-serif" font-size="60" font-weight="bold" fill="${textColorRgb}" text-anchor="end" stroke="#000000" stroke-width="3">₿ Crypto B</text>
+  <rect x="911" y="55" width="350" height="55" rx="8" fill="rgba(0,0,0,0.8)" stroke="${accentColorRgb}" stroke-width="2"/>
+  <text x="1086" y="93.5" font-family="Arial, sans-serif" font-size="30" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" dominant-baseline="middle">${escapeXml(dateTimeStr)}</text>
 </svg>`;
       
       const sharpModule = await import('sharp');
