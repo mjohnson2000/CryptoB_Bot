@@ -1,10 +1,10 @@
 # YouTube Crypto Bot
 
-Automated bot that creates YouTube videos about the latest crypto news. The bot searches for trending crypto topics from the last 4 hours, distills them into top 3-4 stories, and generates a complete video with avatar, thumbnail, title, description, and tags.
+Automated bot that creates YouTube videos about the latest crypto news. The bot searches for trending crypto topics from the last 6 hours, distills them into top 3-4 stories, and generates a complete video with avatar, thumbnail, title, description, and tags.
 
 ## Features
 
-- 🔍 Web scraping for latest crypto news (last 4 hours)
+- 🔍 Web scraping for latest crypto news (last 6 hours)
 - 🤖 AI-powered content generation (OpenAI)
 - 🎬 Automated video creation with avatar "Crypto B"
 - 🖼️ Thumbnail generation

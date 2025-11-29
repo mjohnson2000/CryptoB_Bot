@@ -89,7 +89,7 @@ npm run dev:client
 
 1. Click the "Create Video" button
 2. The bot will:
-   - Scrape latest crypto news (last 4 hours)
+   - Scrape latest crypto news (last 6 hours)
    - Identify top 3-4 trending topics
    - Generate script with "Crypto B" personality
    - Create video with avatar and audio

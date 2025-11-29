@@ -43,7 +43,7 @@ export async function distillTrendingTopics(
       .map(a => `- ${a.title} (${a.source})`)
       .join('\n');
 
-    const prompt = `You are analyzing the latest crypto news to identify the top 3-4 most trending and important topics from the last 4 hours. 
+    const prompt = `You are analyzing the latest crypto news to identify the top 3-4 most trending and important topics from the last 6 hours. 
 
 Here are the recent articles:
 ${articlesText}
@@ -252,20 +252,20 @@ Requirements:
 - Tone: Energetic, casual, slightly edgy, use crypto slang
 - Length: 4-6 minutes of speaking (approximately 600-900 words)
 - Structure: 
-  1. Hook intro (15 seconds) - mention 4-hour updates
+  1. Hook intro (15 seconds) - mention 6-hour updates
   2. Price Movement Update (30 seconds) - top winners/losers, market sentiment
   3. Main News Stories (2-3 minutes) - cover each topic with analysis
   4. NFT Update (30 seconds) - trending collections, floor prices
-  5. Strong outro (15 seconds) - subscribe, next update in 4 hours
+  5. Strong outro (15 seconds) - subscribe, next update in 6 hours
 - Include: Price movements, market sentiment, potential opportunities
 - Use: Crypto terminology (moon, diamond hands, FUD, alpha, etc.)
-- IMPORTANT: Mention in the intro and/or outro that this news is from the last 4 hours, and that new videos are posted every 4 hours with the latest crypto updates
+- IMPORTANT: Mention in the intro and/or outro that this news is from the last 6 hours, and that new videos are posted every 6 hours with the latest crypto updates
 - CRITICAL: If covering topics that were mentioned in recent videos, use a DIFFERENT angle, focus on UPDATES, or provide DEEPER analysis. Never repeat the same narrative.
 
 Also generate:
 1. A catchy YouTube title (under 60 characters, clickbait but accurate)
 2. A detailed description (3-4 paragraphs) that:
-   - MUST mention that news is updated every 4 hours and new videos are posted every 4 hours
+   - MUST mention that news is updated every 6 hours and new videos are posted every 6 hours
    - Includes accurate timestamps for each topic (format: MM:SS)
    - Mentions that viewers should check the description for reference links to learn more
    - Note: Timestamps will be calculated after video generation, so estimate based on script length (approximately 150 words per minute)
@@ -562,9 +562,9 @@ function getMockScript(topics: TrendingTopic[]): VideoScript {
     .map(t => `- ${t.title}: ${t.url}`)
     .join('\n');
   
-  let description = `What's up degens! Crypto B here with the latest alpha. In this video, we're breaking down the top 3 crypto stories from the last 4 hours.
+  let description = `What's up degens! Crypto B here with the latest alpha. In this video, we're breaking down the top 3 crypto stories from the last 6 hours.
 
-📅 NEW VIDEOS EVERY 4 HOURS! We bring you the freshest crypto news around the clock, so you never miss the latest moves in the market.
+📅 NEW VIDEOS EVERY 6 HOURS! We bring you the freshest crypto news around the clock, so you never miss the latest moves in the market.
 
 💡 Want to dive deeper? Check the reference links below for more info on each topic!
 
@@ -574,7 +574,7 @@ function getMockScript(topics: TrendingTopic[]): VideoScript {
 3:00 - ${topics[2]?.title || 'Story 3'}
 4:15 - Outro
 
-Stay tuned for more crypto alpha! Make sure to subscribe and hit the bell so you don't miss our next update in 4 hours!`;
+Stay tuned for more crypto alpha! Make sure to subscribe and hit the bell so you don't miss our next update in 6 hours!`;
 
   if (referenceLinks) {
     description += `\n\n📚 REFERENCE LINKS - Check these out for more info on the topics covered:\n\n${referenceLinks}\n\n💡 Want to dive deeper? Click the links above to read the full articles and get all the details!`;
@@ -585,7 +585,7 @@ Stay tuned for more crypto alpha! Make sure to subscribe and hit the bell so you
     thumbnailTitle: '🚀 CRYPTO MOONING! Top 3 Stories',
     description,
     tags: ['crypto', 'bitcoin', 'ethereum', 'defi', 'cryptocurrency', 'trading', 'crypto news'],
-    script: `Yo what's up degens! Crypto B here, and we've got some absolutely INSANE crypto news dropping in the last 4 hours. That's right - we're bringing you the freshest alpha every 4 hours, so you're always ahead of the game. If you're not paying attention, you're missing out on some serious moves. Let's dive in!
+    script: `Yo what's up degens! Crypto B here, and we've got some absolutely INSANE crypto news dropping in the last 6 hours. That's right - we're bringing you the freshest alpha every 6 hours, so you're always ahead of the game. If you're not paying attention, you're missing out on some serious moves. Let's dive in!
 
 First up, we're seeing Bitcoin absolutely SMASH through resistance levels. This is the kind of move that gets degens excited, and honestly? I'm here for it.
 
@@ -593,8 +593,197 @@ Next, Ethereum is hitting some major milestones with staking. The numbers are wi
 
 And finally, we've got a new DeFi protocol that's absolutely exploding. The TVL numbers are insane, and this could be the next big thing.
 
-That's all for now degens. Keep those diamond hands strong, and remember - we drop fresh crypto news every 4 hours, so make sure you're subscribed and hit that bell to never miss an update. I'll catch you in the next one in 4 hours. Peace!`,
+That's all for now degens. Keep those diamond hands strong, and remember - we drop fresh crypto news every 6 hours, so make sure you're subscribed and hit that bell to never miss an update. I'll catch you in the next one in 6 hours. Peace!`,
     topics
   };
+}
+
+/**
+ * Generate a deep dive video script for a specific topic (5 minutes)
+ */
+export async function generateDeepDiveScript(
+  topic: string,
+  requestComments: Array<{ text: string; author: string }> = []
+): Promise<VideoScript> {
+  try {
+    const openai = getOpenAIClient();
+
+    // Build context from comments
+    let commentsContext = '';
+    if (requestComments.length > 0) {
+      const commentsText = requestComments
+        .slice(0, 10)
+        .map(c => `- "${c.text}" (by ${c.author})`)
+        .join('\n');
+      commentsContext = `\n\nViewer requests from comments:\n${commentsText}\n\nThese comments show what viewers want to learn more about regarding "${topic}".`;
+    }
+
+    const prompt = `You are "Crypto B", a charismatic crypto influencer creating a DEEP DIVE YouTube video. This video is based on viewer requests from comments asking for more information about "${topic}".
+
+${commentsContext}
+
+Create an engaging 5-minute deep dive video script that thoroughly explains "${topic}".
+
+Requirements:
+- Target audience: Young crypto degens (18-30, meme-loving, risk-tolerant)
+- Tone: Energetic, educational, casual, use crypto slang
+- Length: 5 minutes of speaking (approximately 900-1000 words to ensure full 5 minutes)
+- CRITICAL: The script MUST be long enough to fill exactly 5 minutes when spoken. Aim for 1000 words minimum.
+- Structure:
+  1. Hook intro (30 seconds) - mention this is a deep dive based on viewer requests
+  2. Overview/Context (45 seconds) - what is this topic and why it matters
+  3. Deep Analysis (3.5-4 minutes) - break down the topic thoroughly:
+     - Key concepts and how they work
+     - Current state and recent developments
+     - Why it's important for crypto
+     - Potential impact or opportunities
+     - Detailed explanations with examples
+  4. Real-world examples or use cases (30 seconds)
+  5. Outro (15 seconds) - encourage more requests, mention videos are created once per day based on comments
+- Include: Technical details explained simply, real examples, potential opportunities
+- Use: Crypto terminology appropriately
+- IMPORTANT: Mention that this deep dive was created based on viewer comments and requests
+- IMPORTANT: Mention that new deep dive videos are created once per day based on the most requested topics from comments
+
+Also generate:
+1. A catchy YouTube title (under 60 characters, include "DEEP DIVE" or "EXPLAINED")
+2. A detailed description (3-4 paragraphs) that:
+   - Mentions this video was created based on viewer requests
+   - Explains that deep dive videos are created once per day based on comment requests
+   - Includes accurate timestamps for each section (format: MM:SS)
+   - Provides additional resources or links
+3. Relevant tags (15-20 tags, comma-separated)
+
+CRITICAL: The script text must be at least 1000 words to ensure a full 5 minutes of content. Do not make it shorter.
+
+Format your response as JSON:
+{
+  "title": "Video title",
+  "description": "Full description with estimated timestamps",
+  "tags": ["tag1", "tag2", "tag3"],
+  "script": "Full script text here (MUST be 1000+ words for 5 minutes)"
+}`;
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4-turbo-preview',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are Crypto B, a popular crypto YouTuber known for creating educational deep dive content based on viewer requests.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      temperature: 0.8,
+      response_format: { type: 'json_object' }
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('No response from OpenAI');
+    }
+
+    const parsed = JSON.parse(content);
+    let scriptText = parsed.script || '';
+
+    // Validate script length - ensure it's long enough for 5 minutes
+    // Average speaking rate is ~150 words per minute, so 5 minutes = ~750 words minimum
+    // But we want to ensure full 5 minutes, so aim for 900-1000 words
+    const wordCount = scriptText.split(/\s+/).filter((w: string) => w.length > 0).length;
+    console.log(`📝 Deep dive script word count: ${wordCount} words`);
+    
+    if (wordCount < 800) {
+      console.warn(`⚠️ Script is only ${wordCount} words (target: 900-1000 for 5 minutes). The video may be shorter than 5 minutes.`);
+      // Try to expand the script if it's too short
+      if (wordCount < 600) {
+        console.warn(`⚠️ Script is too short (${wordCount} words). Video will likely be less than 5 minutes.`);
+      }
+    }
+
+    // Generate a captivating 4-word thumbnail title (not just truncated video title)
+    let thumbnailTitle = parsed.title || `DEEP DIVE: ${topic}`;
+    
+    // Remove "DEEP DIVE:" prefix if present for thumbnail title generation
+    const topicForThumbnail = topic.replace(/^DEEP DIVE:\s*/i, '').trim();
+    
+    try {
+      const thumbnailPrompt = `Create a SHORT, PROFESSIONAL, CATCHY thumbnail title for a YouTube deep dive crypto education video. This will be displayed on a thumbnail image, so it needs to be:
+- EXACTLY 4 words maximum (no more, no less if possible)
+- Professional and educational (not clickbait, but still captivating)
+- Focus on the core topic being explained
+- Use clear, concise language
+- Make it informative and intriguing
+- NO emojis (keep it clean and professional)
+- Title case (Capitalize Important Words)
+- Do NOT just truncate the video title - create a NEW, BETTER title that captures the essence
+
+Topic being explained: "${topicForThumbnail}"
+Original video title: "${parsed.title || `DEEP DIVE: ${topic}`}"
+
+Return ONLY the 4-word thumbnail title, nothing else. No quotes, no explanations. Make it professional and captivating.`;
+
+      const thumbnailResponse = await openai.chat.completions.create({
+        model: 'gpt-4-turbo-preview',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert at creating short, professional, captivating YouTube thumbnail titles for educational deep dive videos. Always return exactly 4 words when possible. Keep it professional and informative, not clickbait.'
+          },
+          {
+            role: 'user',
+            content: thumbnailPrompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 30
+      });
+
+      const generatedThumbnailTitle = thumbnailResponse.choices[0]?.message?.content?.trim();
+      if (generatedThumbnailTitle) {
+        // Remove decorative quotes
+        thumbnailTitle = generatedThumbnailTitle.replace(/^["']|["']$/g, '').trim();
+        
+        // Ensure it's exactly 4 words (or less if topic is very short)
+        const words = thumbnailTitle.split(/\s+/).filter((w: string) => w.length > 0);
+        if (words.length > 4) {
+          thumbnailTitle = words.slice(0, 4).join(' ');
+        }
+        
+        console.log(`✅ Generated deep dive thumbnail title: "${thumbnailTitle}"`);
+      }
+    } catch (error) {
+      console.warn('Failed to generate AI thumbnail title, using fallback:', error);
+      // Fallback: Create a simple 4-word title from the topic
+      const topicWords = topicForThumbnail.split(/\s+/).filter((w: string) => w.length > 0);
+      if (topicWords.length <= 4) {
+        thumbnailTitle = topicWords.join(' ');
+      } else {
+        // Take first 4 words and make it professional
+        thumbnailTitle = topicWords.slice(0, 4).join(' ');
+      }
+    }
+
+    // Create a single topic for the deep dive
+    const deepDiveTopic: TrendingTopic = {
+      title: topic,
+      summary: `Deep dive on ${topic} based on viewer requests`,
+      importance: 10,
+      source: 'Viewer Requests'
+    };
+
+    return {
+      title: parsed.title || `DEEP DIVE: ${topic}`,
+      thumbnailTitle: thumbnailTitle, // Use the AI-generated 4-word title
+      description: parsed.description || '',
+      tags: Array.isArray(parsed.tags) ? parsed.tags : parsed.tags?.split(',').map((t: string) => t.trim()) || [],
+      script: scriptText,
+      topics: [deepDiveTopic]
+    };
+  } catch (error) {
+    console.error('Error generating deep dive script:', error);
+    throw error;
+  }
 }
 

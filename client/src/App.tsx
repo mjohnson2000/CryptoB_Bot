@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
+import DeepDive from './DeepDive';
 import './App.css';
 
 interface JobProgress {
@@ -23,11 +24,24 @@ interface JobProgress {
   };
 }
 
+interface AutomationState {
+  isRunning: boolean;
+  cadenceHours: number;
+  lastRun?: string;
+  nextRun?: string;
+  currentJobId?: string;
+}
+
 function App() {
+  const [activeTab, setActiveTab] = useState<'news' | 'deepdive'>('news');
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<JobProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [automationState, setAutomationState] = useState<AutomationState | null>(null);
+  const [cadenceInput, setCadenceInput] = useState<string>('6');
+  const [startTimeInput, setStartTimeInput] = useState<string>('');
+  const [automationLoading, setAutomationLoading] = useState(false);
 
   const handleCreateVideo = async () => {
     setLoading(true);
@@ -196,6 +210,110 @@ function App() {
     return `/api/video/preview/thumbnail/${filename}`;
   };
 
+  // Fetch automation status
+  const fetchAutomationStatus = async () => {
+    try {
+      const response = await axios.get<{ success: boolean; isRunning: boolean; cadenceHours: number; lastRun?: string; nextRun?: string; currentJobId?: string }>('/api/automation/status');
+      if (response.data.success) {
+        setAutomationState({
+          isRunning: response.data.isRunning,
+          cadenceHours: response.data.cadenceHours,
+          lastRun: response.data.lastRun,
+          nextRun: response.data.nextRun,
+          currentJobId: response.data.currentJobId
+        });
+        if (!cadenceInput || cadenceInput === '6') {
+          setCadenceInput(response.data.cadenceHours.toString());
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching automation status:', err);
+    }
+  };
+
+  // Start automation
+  const handleStartAutomation = async () => {
+    const hours = Number(cadenceInput);
+    if (isNaN(hours) || hours < 1) {
+      setError('Cadence must be a number >= 1');
+      return;
+    }
+
+    setAutomationLoading(true);
+    setError(null);
+    try {
+      const payload: { cadenceHours: number; startTime?: string } = { cadenceHours: hours };
+      if (startTimeInput) {
+        // Convert datetime-local to ISO string
+        const startTime = new Date(startTimeInput).toISOString();
+        payload.startTime = startTime;
+      }
+      const response = await axios.post('/api/automation/start', payload);
+      if (response.data.success) {
+        await fetchAutomationStatus();
+        setStartTimeInput(''); // Clear after successful start
+      }
+    } catch (err) {
+      const errorMessage = axios.isAxiosError(err)
+        ? err.response?.data?.error || err.message
+        : 'Unknown error occurred';
+      setError(errorMessage);
+    } finally {
+      setAutomationLoading(false);
+    }
+  };
+
+  // Stop automation
+  const handleStopAutomation = async () => {
+    setAutomationLoading(true);
+    setError(null);
+    try {
+      const response = await axios.post('/api/automation/stop');
+      if (response.data.success) {
+        await fetchAutomationStatus();
+      }
+    } catch (err) {
+      const errorMessage = axios.isAxiosError(err)
+        ? err.response?.data?.error || err.message
+        : 'Unknown error occurred';
+      setError(errorMessage);
+    } finally {
+      setAutomationLoading(false);
+    }
+  };
+
+  // Set cadence
+  const handleSetCadence = async () => {
+    const hours = Number(cadenceInput);
+    if (isNaN(hours) || hours < 1) {
+      setError('Cadence must be a number >= 1');
+      return;
+    }
+
+    setAutomationLoading(true);
+    setError(null);
+    try {
+      const response = await axios.post('/api/automation/cadence', { hours });
+      if (response.data.success) {
+        await fetchAutomationStatus();
+      }
+    } catch (err) {
+      const errorMessage = axios.isAxiosError(err)
+        ? err.response?.data?.error || err.message
+        : 'Unknown error occurred';
+      setError(errorMessage);
+    } finally {
+      setAutomationLoading(false);
+    }
+  };
+
+  // Fetch automation status on mount and periodically
+  useEffect(() => {
+    fetchAutomationStatus();
+    const interval = setInterval(fetchAutomationStatus, 5000); // Poll every 5 seconds
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div className="app">
       <div className="container">
@@ -207,12 +325,143 @@ function App() {
           <p className="subtitle">Automated YouTube Crypto News Bot</p>
         </header>
 
+        <div className="tabs">
+          <button
+            className={`tab ${activeTab === 'news' ? 'active' : ''}`}
+            onClick={() => setActiveTab('news')}
+          >
+            📰 News Updates
+          </button>
+          <button
+            className={`tab ${activeTab === 'deepdive' ? 'active' : ''}`}
+            onClick={() => setActiveTab('deepdive')}
+          >
+            🎯 Deep Dive Videos
+          </button>
+        </div>
+
+        {activeTab === 'deepdive' ? (
+          <DeepDive />
+        ) : (
         <main className="main">
+          {/* Automation Section */}
+          <div className="card">
+            <div className="card-header">
+              <h2>🤖 Automated Video Creation</h2>
+              <p className="card-description">
+                Set up automatic video creation and upload. Videos will be created and uploaded automatically at the specified interval.
+              </p>
+            </div>
+
+            <div className="automation-controls">
+              <div className="automation-status">
+                <div className="status-indicator">
+                  <span className={`status-dot ${automationState?.isRunning ? 'running' : 'stopped'}`}></span>
+                  <span className="status-text">
+                    {automationState?.isRunning ? '🟢 Running' : '🔴 Stopped'}
+                  </span>
+                </div>
+                {automationState?.isRunning && (
+                  <div className="automation-info">
+                    <p><strong>Cadence:</strong> Every {automationState.cadenceHours} hour{automationState.cadenceHours !== 1 ? 's' : ''}</p>
+                    {automationState.lastRun && (
+                      <p><strong>Last Run:</strong> {new Date(automationState.lastRun).toLocaleString()}</p>
+                    )}
+                    {automationState.nextRun && (
+                      <p><strong>Next Run:</strong> {new Date(automationState.nextRun).toLocaleString()}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="cadence-control">
+                <label htmlFor="cadence-input">Cadence (hours):</label>
+                <div className="cadence-input-group">
+                  <input
+                    id="cadence-input"
+                    type="number"
+                    min="1"
+                    value={cadenceInput}
+                    onChange={(e) => setCadenceInput(e.target.value)}
+                    disabled={automationLoading}
+                    className="cadence-input"
+                  />
+                  {automationState?.isRunning && (
+                    <button
+                      onClick={handleSetCadence}
+                      disabled={automationLoading}
+                      className="update-cadence-button"
+                    >
+                      Update
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {!automationState?.isRunning && (
+                <div className="start-time-control">
+                  <label htmlFor="start-time-input">First Upload Time (optional):</label>
+                  <input
+                    id="start-time-input"
+                    type="datetime-local"
+                    value={startTimeInput}
+                    onChange={(e) => setStartTimeInput(e.target.value)}
+                    disabled={automationLoading}
+                    className="start-time-input"
+                    min={new Date().toISOString().slice(0, 16)}
+                  />
+                  <p className="help-text">Leave empty to start immediately</p>
+                </div>
+              )}
+
+              <div className="automation-buttons">
+                {!automationState?.isRunning ? (
+                  <button
+                    onClick={handleStartAutomation}
+                    disabled={automationLoading}
+                    className="start-automation-button"
+                  >
+                    {automationLoading ? (
+                      <>
+                        <span className="spinner"></span>
+                        Starting...
+                      </>
+                    ) : (
+                      <>
+                        <span>▶️</span>
+                        Start Automation
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleStopAutomation}
+                    disabled={automationLoading}
+                    className="stop-automation-button"
+                  >
+                    {automationLoading ? (
+                      <>
+                        <span className="spinner"></span>
+                        Stopping...
+                      </>
+                    ) : (
+                      <>
+                        <span>⏹️</span>
+                        Stop Automation
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Manual Video Creation Section */}
           <div className="card">
             <div className="card-header">
               <h2>Create New Video</h2>
               <p className="card-description">
-                Generate a YouTube video with the latest crypto news from the last 4 hours.
+                Generate a YouTube video with the latest crypto news from the last 6 hours.
                 Preview and approve before uploading to YouTube.
               </p>
             </div>
@@ -375,6 +624,7 @@ function App() {
             </ol>
           </div>
         </main>
+        )}
       </div>
     </div>
   );

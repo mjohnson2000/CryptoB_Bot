@@ -55,25 +55,25 @@ const RSS_FEEDS: RSSFeed[] = [
 
 export async function scrapeCryptoNews(): Promise<NewsArticle[]> {
   const articles: NewsArticle[] = [];
-  const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
+  const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
 
   try {
     // Try RSS feeds first (more reliable, includes publish dates)
     console.log('📡 Fetching news from RSS feeds...');
-    const rssArticles = await fetchRSSFeeds(fourHoursAgo);
+    const rssArticles = await fetchRSSFeeds(sixHoursAgo);
     articles.push(...rssArticles);
     console.log(`✅ Fetched ${rssArticles.length} articles from RSS feeds`);
 
     // Fallback to scraping if RSS didn't get enough articles
     if (articles.length < 10) {
       console.log('📰 Supplementing with web scraping...');
-      const coinDeskArticles = await scrapeCoinDesk(fourHoursAgo);
+      const coinDeskArticles = await scrapeCoinDesk(sixHoursAgo);
       articles.push(...coinDeskArticles);
 
-      const coinTelegraphArticles = await scrapeCoinTelegraph(fourHoursAgo);
+      const coinTelegraphArticles = await scrapeCoinTelegraph(sixHoursAgo);
       articles.push(...coinTelegraphArticles);
 
-      const cryptoSlateArticles = await scrapeCryptoSlate(fourHoursAgo);
+      const cryptoSlateArticles = await scrapeCryptoSlate(sixHoursAgo);
       articles.push(...cryptoSlateArticles);
       console.log(`✅ Scraped ${coinDeskArticles.length + coinTelegraphArticles.length + cryptoSlateArticles.length} additional articles`);
     }
@@ -81,12 +81,12 @@ export async function scrapeCryptoNews(): Promise<NewsArticle[]> {
     // Remove duplicates (same URL)
     const uniqueArticles = removeDuplicates(articles);
 
-    // Filter articles from last 4 hours (using actual publish dates)
+    // Filter articles from last 6 hours (using actual publish dates)
     const recentArticles = uniqueArticles.filter(article => 
-      article.timestamp >= fourHoursAgo
+      article.timestamp >= sixHoursAgo
     );
 
-    console.log(`📊 Total unique articles from last 4 hours: ${recentArticles.length}`);
+    console.log(`📊 Total unique articles from last 6 hours: ${recentArticles.length}`);
     return recentArticles;
   } catch (error) {
     console.error('Error scraping crypto news:', error);
@@ -100,7 +100,7 @@ export async function scrapeCryptoNews(): Promise<NewsArticle[]> {
  */
 async function fetchRSSFeeds(cutoffDate: Date): Promise<NewsArticle[]> {
   const allArticles: NewsArticle[] = [];
-  const fourHoursAgo = cutoffDate.getTime();
+  const cutoffTimestamp = cutoffDate.getTime();
 
   // Fetch from all RSS feeds in parallel
   const feedPromises = RSS_FEEDS.map(feed => fetchRSSFeed(feed, cutoffDate));
@@ -156,7 +156,7 @@ async function fetchRSSFeed(feed: RSSFeed, cutoffDate: Date): Promise<NewsArticl
             }
           }
 
-          // Only include articles from last 4 hours
+          // Only include articles from last 6 hours
           if (timestamp.getTime() >= cutoffDate.getTime()) {
             articles.push({
               title: title.trim(),

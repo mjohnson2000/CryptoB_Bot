@@ -181,3 +181,94 @@ export async function updateDescriptionWithTimestamps(
   }
 }
 
+/**
+ * Updates the deep dive video description with accurate timestamps based on actual video duration
+ * Deep dive videos have a different structure: Intro, Overview, Deep Analysis, Examples, Outro
+ */
+export async function updateDeepDiveDescriptionWithTimestamps(
+  script: VideoScript,
+  videoPath: string
+): Promise<VideoScript> {
+  try {
+    // Get actual video duration
+    const videoDuration = await getVideoDuration(videoPath);
+    
+    if (videoDuration === 0) {
+      console.warn('Could not get video duration, keeping original description');
+      return script;
+    }
+
+    console.log(`📹 Deep dive video duration: ${Math.floor(videoDuration / 60)}:${Math.floor(videoDuration % 60).toString().padStart(2, '0')}`);
+
+    // Deep dive structure:
+    // - Intro: ~30 seconds
+    // - Overview/Context: ~45 seconds
+    // - Deep Analysis: ~3.5-4 minutes (main content)
+    // - Examples/Use cases: ~30 seconds
+    // - Outro: ~15 seconds
+    const introTime = 30;
+    const overviewTime = 45;
+    const examplesTime = 30;
+    const outroTime = 15;
+    const reservedTime = introTime + overviewTime + examplesTime + outroTime;
+    const deepAnalysisTime = Math.max(0, videoDuration - reservedTime);
+    
+    // Remove existing timestamps from description
+    let updatedDescription = script.description;
+    
+    // Remove ALL existing timestamp lines (format: MM:SS - text)
+    updatedDescription = updatedDescription.replace(/^\d{1,2}:\d{2}\s*-\s*.+$/gm, '');
+    updatedDescription = updatedDescription.replace(/\n{3,}/g, '\n\n'); // Clean up extra newlines
+    
+    // Build new timestamp section with accurate times
+    let timestampSection = '';
+    
+    // Add intro timestamp
+    timestampSection += '0:00 - Intro\n';
+    
+    // Add overview timestamp
+    const overviewMinutes = Math.floor(introTime / 60);
+    const overviewSeconds = introTime % 60;
+    timestampSection += `${overviewMinutes}:${overviewSeconds.toString().padStart(2, '0')} - Overview/Context\n`;
+    
+    // Add deep analysis timestamp
+    const analysisStart = introTime + overviewTime;
+    const analysisMinutes = Math.floor(analysisStart / 60);
+    const analysisSeconds = analysisStart % 60;
+    timestampSection += `${analysisMinutes}:${analysisSeconds.toString().padStart(2, '0')} - Deep Analysis\n`;
+    
+    // Add examples timestamp
+    const examplesStart = Math.max(0, videoDuration - examplesTime - outroTime);
+    const examplesMinutes = Math.floor(examplesStart / 60);
+    const examplesSeconds = examplesStart % 60;
+    timestampSection += `${examplesMinutes}:${examplesSeconds.toString().padStart(2, '0')} - Examples/Use Cases\n`;
+    
+    // Add outro timestamp (use actual video duration)
+    const outroMinutes = Math.floor(videoDuration / 60);
+    const outroSeconds = Math.floor(videoDuration % 60);
+    timestampSection += `${outroMinutes}:${outroSeconds.toString().padStart(2, '0')} - Outro`;
+    
+    // Insert timestamp section after the main description content
+    const descriptionParts = updatedDescription.split(/\n\n/);
+    const mainContent = descriptionParts.filter(p => 
+      !p.match(/^\d{1,2}:\d{2}/) && 
+      !p.includes('REFERENCE LINKS') &&
+      !p.includes('Want to dive deeper')
+    ).join('\n\n');
+    
+    // Insert timestamps after main content
+    updatedDescription = mainContent + '\n\n' + timestampSection;
+    
+    console.log(`✅ Updated deep dive description with accurate timestamps based on ${videoDuration.toFixed(1)}s video`);
+    console.log(`📊 Deep dive structure: Intro=${introTime}s, Overview=${overviewTime}s, Analysis=${deepAnalysisTime.toFixed(1)}s, Examples=${examplesTime}s, Outro=${outroTime}s`);
+    
+    return {
+      ...script,
+      description: updatedDescription
+    };
+  } catch (error) {
+    console.error('Error updating deep dive timestamps:', error);
+    return script; // Return original if update fails
+  }
+}
+

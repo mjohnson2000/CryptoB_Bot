@@ -59,7 +59,7 @@ Open http://localhost:5174 and click "Create Video"!
 
 ## Features
 
-✅ Scrapes latest crypto news (last 4 hours)  
+✅ Scrapes latest crypto news (last 6 hours)  
 ✅ AI-powered topic distillation  
 ✅ Generates engaging scripts for "Crypto B"  
 ✅ Creates video with avatar and TTS  

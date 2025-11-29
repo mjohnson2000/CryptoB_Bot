@@ -44,18 +44,141 @@ export async function generateVideoWithAvatar(
 async function generateAudio(script: string, outputDir: string): Promise<string> {
   try {
     const audioPath = path.join(outputDir, `audio_${Date.now()}.mp3`);
-
     const openai = getOpenAIClient();
-    const response = await openai.audio.speech.create({
-      model: 'tts-1',
-      voice: 'nova', // Young, energetic voice
-      input: script,
-      response_format: 'mp3'
-    });
+    const MAX_CHARS = 4096; // OpenAI TTS API limit
 
-    const buffer = Buffer.from(await response.arrayBuffer());
-    await fs.writeFile(audioPath, buffer);
+    // If script is within limit, generate audio directly
+    if (script.length <= MAX_CHARS) {
+      const response = await openai.audio.speech.create({
+        model: 'tts-1',
+        voice: 'nova', // Young, energetic voice
+        input: script,
+        response_format: 'mp3'
+      });
 
+      const buffer = Buffer.from(await response.arrayBuffer());
+      await fs.writeFile(audioPath, buffer);
+      return audioPath;
+    }
+
+    // Script is too long - split into chunks and concatenate
+    console.log(`📝 Script is ${script.length} characters. Splitting into chunks for TTS...`);
+    
+    // Split script into chunks at sentence boundaries (prefer) or word boundaries
+    const chunks: string[] = [];
+    let currentChunk = '';
+    
+    // Split by sentences first (period, exclamation, question mark followed by space)
+    // Use a regex that splits but keeps the delimiters, then reconstruct sentences
+    const parts = script.split(/([.!?]\s+)/);
+    
+    // Reconstruct sentences by pairing parts with their delimiters
+    for (let i = 0; i < parts.length; i += 2) {
+      const textPart = parts[i] || '';
+      const delimiter = parts[i + 1] || '';
+      const sentence = textPart + delimiter;
+      
+      // Skip empty sentences
+      if (!sentence.trim()) continue;
+      
+      const testChunk = currentChunk + sentence;
+      
+      if (testChunk.length <= MAX_CHARS) {
+        currentChunk = testChunk;
+      } else {
+        // Current chunk is full, save it and start new one
+        if (currentChunk.trim().length > 0) {
+          chunks.push(currentChunk.trim());
+        }
+        // If single sentence is too long, split by words
+        if (sentence.length > MAX_CHARS) {
+          const words = sentence.split(/(\s+)/);
+          let wordChunk = '';
+          for (const word of words) {
+            if ((wordChunk + word).length <= MAX_CHARS) {
+              wordChunk += word;
+            } else {
+              if (wordChunk.trim().length > 0) {
+                chunks.push(wordChunk.trim());
+              }
+              wordChunk = word;
+            }
+          }
+          currentChunk = wordChunk;
+        } else {
+          currentChunk = sentence;
+        }
+      }
+    }
+    
+    // Add remaining chunk
+    if (currentChunk.trim().length > 0) {
+      chunks.push(currentChunk.trim());
+    }
+    
+    // Safety check: ensure we have at least one chunk
+    if (chunks.length === 0) {
+      console.warn('⚠️ No chunks created from script. Using entire script as single chunk.');
+      chunks.push(script);
+    }
+    
+    console.log(`✅ Split script into ${chunks.length} chunks for TTS generation`);
+    
+    // Generate audio for each chunk
+    const audioChunks: string[] = [];
+    for (let i = 0; i < chunks.length; i++) {
+      console.log(`🎤 Generating audio chunk ${i + 1}/${chunks.length} (${chunks[i].length} chars)...`);
+      
+      const response = await openai.audio.speech.create({
+        model: 'tts-1',
+        voice: 'nova',
+        input: chunks[i],
+        response_format: 'mp3'
+      });
+
+      const chunkPath = path.join(outputDir, `audio_chunk_${Date.now()}_${i}.mp3`);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      await fs.writeFile(chunkPath, buffer);
+      audioChunks.push(chunkPath);
+    }
+    
+    // Concatenate all audio chunks using FFmpeg
+    if (audioChunks.length === 0) {
+      throw new Error('No audio chunks generated. Cannot create audio file.');
+    }
+    
+    // If only one chunk, just rename it to the final path
+    if (audioChunks.length === 1) {
+      await fs.rename(audioChunks[0], audioPath);
+      console.log(`✅ Audio generation complete (single chunk): ${audioPath}`);
+      return audioPath;
+    }
+    
+    console.log(`🔗 Concatenating ${audioChunks.length} audio chunks...`);
+    
+    // Create a file list for FFmpeg concat
+    const concatListPath = path.join(outputDir, `concat_list_${Date.now()}.txt`);
+    const concatList = audioChunks.map(chunk => `file '${chunk.replace(/'/g, "'\\''")}'`).join('\n');
+    await fs.writeFile(concatListPath, concatList);
+    
+    // Use FFmpeg to concatenate
+    await execAsync(`ffmpeg -f concat -safe 0 -i "${concatListPath}" -c copy "${audioPath}"`);
+    
+    // Clean up temporary files
+    for (const chunk of audioChunks) {
+      try {
+        await fs.unlink(chunk);
+      } catch (e) {
+        // Ignore cleanup errors
+      }
+    }
+    try {
+      await fs.unlink(concatListPath);
+    } catch (e) {
+      // Ignore cleanup errors
+    }
+    
+    console.log(`✅ Audio generation complete: ${audioPath}`);
     return audioPath;
   } catch (error) {
     console.error('Error generating audio:', error);
@@ -1294,12 +1417,14 @@ async function createAvatarImage(outputDir: string): Promise<string> {
 
 export async function generateThumbnail(
   script: VideoScript,
-  outputDir: string = './output'
+  outputPath?: string,
+  isDeepDive: boolean = false
 ): Promise<string> {
   try {
+    const outputDir = outputPath ? path.dirname(outputPath) : './output';
     await fs.mkdir(outputDir, { recursive: true });
     
-    const thumbnailPath = path.join(outputDir, `thumbnail_${Date.now()}.png`);
+    const thumbnailPath = outputPath || path.join(outputDir, `thumbnail_${Date.now()}.png`);
 
     // Helper function to remove all unicode characters (emojis, symbols) from title
     const removeUnicodeFromTitle = (title: string): string => {
@@ -1336,7 +1461,7 @@ export async function generateThumbnail(
       console.warn('Failed to generate AI design, using defaults:', error);
       thumbnailDesign = {
         backgroundColor: '#0a0a0a',
-        accentColor: '#F7931A',
+        accentColor: isDeepDive ? '#4caf50' : '#F7931A', // Green for deep dive, Bitcoin orange for news
         textColor: '#FFFFFF',
         layout: 'centered',
         visualElements: ['gradient', 'glow', 'grid'],
@@ -1412,16 +1537,19 @@ export async function generateThumbnail(
       ctx.textBaseline = 'middle';
       
       // Use thumbnail title (4 words max, AI-generated)
+      // For deep dive videos, use the specially generated thumbnail title
       let titleToUse = script.thumbnailTitle || script.title;
       
       // Remove all unicode characters (emojis, symbols) from title
       titleToUse = removeUnicodeFromTitle(titleToUse);
       
-      // Ensure it's 4 words max
+      // Ensure it's 4 words max (for deep dive, this should already be 4 words from AI generation)
       const words = titleToUse.split(/\s+/).filter(w => w.length > 0);
       if (words.length > 4) {
         titleToUse = words.slice(0, 4).join(' ');
       }
+      
+      // Use same formatting for both deep dive and news videos (no special title case conversion)
       
       // Remove quotation marks unless they're actual quotes (e.g., "someone said")
       // Check if quotes are used for actual quotations (words like "said", "announced", "stated" nearby)
@@ -1449,6 +1577,7 @@ export async function generateThumbnail(
       let optimalFontSize = minFontSize;
       
       while (fontSize >= minFontSize && !fits) {
+        // Use same text wrapping for both deep dive and news videos
         titleLines = wrapText(ctx, titleToUse, textMaxWidth, fontSize);
         
         // Check if it fits within max lines
@@ -1668,17 +1797,22 @@ export async function generateThumbnail(
       // Measure text to size badge properly
       ctx.font = 'bold 34px Arial';
       ctx.textAlign = 'left';
-      const badgeText = 'LATEST CRYPTO NEWS!';
+      const badgeText = isDeepDive ? 'DEEP DIVE' : 'LATEST CRYPTO NEWS!';
       const badgeTextMetrics = ctx.measureText(badgeText);
       const badgeTextWidth = badgeTextMetrics.width;
       const latestBadgePadding = 20; // Padding on each side
       const badgeWidth = badgeTextWidth + (latestBadgePadding * 2);
       
-      // Use the same gradient as the logo for visual consistency
+      // Use green gradient for deep dive, Bitcoin orange for news
       const badgeGradient = ctx.createLinearGradient(badgeX, badgeY, badgeX, badgeY + badgeHeight);
-      badgeGradient.addColorStop(0, '#F7931A'); // Bitcoin orange (same as logo center)
-      badgeGradient.addColorStop(0.7, '#E8821A'); // Darker orange (same as logo)
-      badgeGradient.addColorStop(1, '#D6711A'); // Deep orange (same as logo edge)
+      if (isDeepDive) {
+        badgeGradient.addColorStop(0, '#4caf50'); // Green (matching start automation button)
+        badgeGradient.addColorStop(1, '#45a049'); // Darker green
+      } else {
+        badgeGradient.addColorStop(0, '#F7931A'); // Bitcoin orange (same as logo center)
+        badgeGradient.addColorStop(0.7, '#E8821A'); // Darker orange (same as logo)
+        badgeGradient.addColorStop(1, '#D6711A'); // Deep orange (same as logo edge)
+      }
       ctx.fillStyle = badgeGradient;
       drawBadge(badgeX, badgeY, badgeWidth, badgeHeight, 10);
       ctx.fill();
@@ -1689,10 +1823,17 @@ export async function generateThumbnail(
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(badgeText, badgeX + (badgeWidth / 2), badgeY + (badgeHeight / 2) + 13);
+      
+      // Add "Based on Your Comments" text for deep dive
+      if (isDeepDive) {
+      ctx.fillStyle = thumbnailDesign.textColor;
+        ctx.font = 'bold 24px Arial';
+        ctx.fillText('Based on Your Comments', badgeX + (badgeWidth / 2), badgeY + badgeHeight + 35);
+      }
 
-      // Add Bitcoin orange border around the entire thumbnail
+      // Add border around the entire thumbnail - green for deep dive, Bitcoin orange for news
       const borderWidth = 8; // 8px border
-      ctx.strokeStyle = '#F7931A'; // Bitcoin orange
+      ctx.strokeStyle = isDeepDive ? '#4caf50' : '#F7931A'; // Green for deep dive, Bitcoin orange for news
       ctx.lineWidth = borderWidth;
       ctx.strokeRect(borderWidth / 2, borderWidth / 2, 1280 - borderWidth, 720 - borderWidth);
 
@@ -1715,7 +1856,7 @@ export async function generateThumbnail(
         } catch (error) {
           design = {
             backgroundColor: '#0a0a0a',
-            accentColor: '#F7931A',
+            accentColor: isDeepDive ? '#4caf50' : '#F7931A', // Green for deep dive, Bitcoin orange for news
             textColor: '#FFFFFF',
             layout: 'centered',
             visualElements: ['gradient', 'glow', 'grid'],
@@ -1737,16 +1878,19 @@ export async function generateThumbnail(
       };
       
       // Use thumbnail title (4 words max, AI-generated)
+      // For deep dive videos, use the specially generated thumbnail title
       let titleToUse = script.thumbnailTitle || script.title;
       
       // Remove all unicode characters (emojis, symbols) from title
       titleToUse = removeUnicodeFromTitle(titleToUse);
       
-      // Ensure it's 4 words max
+      // Ensure it's 4 words max (for deep dive, this should already be 4 words from AI generation)
       const words = titleToUse.split(/\s+/).filter(w => w.length > 0);
       if (words.length > 4) {
         titleToUse = words.slice(0, 4).join(' ');
       }
+      
+      // Use same formatting for both deep dive and news videos (no special title case conversion)
       
       // Remove quotation marks unless they're actual quotes
       const hasQuoteContext = /\b(said|says|announced|stated|declared|quoted|tweeted|posted|wrote|claimed|revealed)\b/i.test(titleToUse);
@@ -1783,8 +1927,8 @@ export async function generateThumbnail(
       let optimalFontSize = minFontSize;
       
       while (fontSize >= minFontSize && !fits) {
-        // Split title into words (preserving emojis)
-        const parts = titleToUse.split(/\s+/).filter(p => p.length > 0);
+        // Use same text wrapping for both deep dive and news videos
+        const parts = titleToUse.split(/\s+/).filter((p: string) => p.length > 0);
         titleLines = [];
         let currentLine = parts[0] || '';
         
@@ -1928,7 +2072,7 @@ export async function generateThumbnail(
     </radialGradient>
     ` : ''}
   </defs>
-  <rect width="1280" height="720" fill="url(#bgGrad)" stroke="#F7931A" stroke-width="8"/>
+  <rect width="1280" height="720" fill="url(#bgGrad)" stroke="${isDeepDive ? '#4caf50' : '#F7931A'}" stroke-width="8"/>
   <ellipse cx="1100" cy="100" rx="350" ry="350" fill="url(#accentGrad)"/>
   ${design.visualElements.includes('glow') ? `<ellipse cx="640" cy="360" rx="400" ry="400" fill="url(#glowGrad)"/>` : ''}
   ${design.visualElements.includes('grid') ? `
@@ -1954,9 +2098,14 @@ export async function generateThumbnail(
       <stop offset="100%" style="stop-color:rgba(255,255,255,0);stop-opacity:1" />
     </radialGradient>
     <linearGradient id="badgeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      ${isDeepDive ? `
+      <stop offset="0%" style="stop-color:#4caf50;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#45a049;stop-opacity:1" />
+      ` : `
       <stop offset="0%" style="stop-color:#F7931A;stop-opacity:1" />
       <stop offset="70%" style="stop-color:#E8821A;stop-opacity:1" />
       <stop offset="100%" style="stop-color:#D6711A;stop-opacity:1" />
+      `}
     </linearGradient>
   </defs>
   <circle cx="55" cy="82.5" r="52" fill="url(#logoGlow)"/>
@@ -1965,14 +2114,14 @@ export async function generateThumbnail(
   <text x="55" y="94.5" font-family="Arial, sans-serif" font-size="36" font-weight="bold" fill="#000000" text-anchor="middle" dominant-baseline="middle" stroke="#ffffff" stroke-width="3">CB</text>
   <!-- Badge moved to the right after logo - using same gradient as logo for consistency -->
   <rect x="110" y="50" width="420" height="65" rx="10" fill="url(#badgeGrad)"/>
-  <text x="320" y="95.5" font-family="Arial, sans-serif" font-size="34" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" dominant-baseline="middle">LATEST CRYPTO NEWS!</text>
+  <text x="320" y="95.5" font-family="Arial, sans-serif" font-size="34" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" dominant-baseline="middle">${isDeepDive ? 'DEEP DIVE' : 'LATEST CRYPTO NEWS!'}</text>
   <!-- Title centered at x=640 (center of 1280px thumbnail) for equal space on both sides -->
   <text x="640" y="${textY}" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" stroke="#000000" stroke-width="3">
-    <tspan x="640" dy="0">${line1}</tspan>
-    ${line2 ? `<tspan x="640" dy="${lineSpacing}">${line2}</tspan>` : ''}
-    ${line3 ? `<tspan x="640" dy="${lineSpacing}">${line3}</tspan>` : ''}
-    ${line4 ? `<tspan x="640" dy="${lineSpacing}">${line4}</tspan>` : ''}
-    ${line5 ? `<tspan x="640" dy="${lineSpacing}">${line5}</tspan>` : ''}
+    <tspan x="640" dy="0" font-weight="bold">${line1}</tspan>
+    ${line2 ? `<tspan x="640" dy="${lineSpacing}" font-weight="bold">${line2}</tspan>` : ''}
+    ${line3 ? `<tspan x="640" dy="${lineSpacing}" font-weight="bold">${line3}</tspan>` : ''}
+    ${line4 ? `<tspan x="640" dy="${lineSpacing}" font-weight="bold">${line4}</tspan>` : ''}
+    ${line5 ? `<tspan x="640" dy="${lineSpacing}" font-weight="bold">${line5}</tspan>` : ''}
   </text>
   <rect x="911" y="55" width="350" height="55" rx="8" fill="rgba(0,0,0,0.8)" stroke="${accentColorRgb}" stroke-width="2"/>
   <text x="1086" y="93.5" font-family="Arial, sans-serif" font-size="30" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" dominant-baseline="middle">${escapeXml(dateTimeStr)}</text>
@@ -2050,5 +2199,71 @@ function wrapText(
   
   // Ensure all lines fit within maxWidth (but don't truncate - let adaptive sizing handle it)
   return lines;
+}
+
+/**
+ * Generate a deep dive video (5 minutes) with avatar
+ */
+export async function generateDeepDiveVideo(
+  script: VideoScript,
+  jobId: string,
+  outputDir: string = './output'
+): Promise<string> {
+  try {
+    // Ensure output directory exists
+    await fs.mkdir(outputDir, { recursive: true });
+
+    // Generate audio using OpenAI TTS
+    const audioPath = await generateAudio(script.script, outputDir);
+
+    // Generate word-level timestamps using Whisper
+    const subtitlePath = await generateSubtitlesWithTimestamps(audioPath, script.script, outputDir);
+
+    // Create video with captions and on-screen text overlays (5 minutes)
+    const videoPath = await createDeepDiveVideoWithAvatar(audioPath, subtitlePath, script, jobId, outputDir);
+
+    return videoPath;
+  } catch (error) {
+    console.error('Error generating deep dive video:', error);
+    throw error;
+  }
+}
+
+/**
+ * Create deep dive video with static avatar (5 minutes, focused on single topic)
+ * Reuses the regular video creation but with simplified overlays
+ */
+async function createDeepDiveVideoWithAvatar(
+  audioPath: string,
+  subtitlePath: string,
+  script: VideoScript,
+  jobId: string,
+  outputDir: string
+): Promise<string> {
+  // Reuse the regular video creation function but with a flag for deep dive
+  // For now, we'll use the same function but can customize later
+  return createVideoWithStaticAvatar(audioPath, subtitlePath, script, outputDir);
+}
+
+/**
+ * Generate deep dive thumbnail
+ */
+export async function generateDeepDiveThumbnail(
+  script: VideoScript,
+  jobId: string,
+  outputDir: string = './output'
+): Promise<string> {
+  try {
+    await fs.mkdir(outputDir, { recursive: true });
+    const thumbnailPath = path.join(outputDir, `deepdive_thumbnail_${jobId}.png`);
+
+    // Use the same thumbnail generation as regular videos but with "DEEP DIVE" branding
+    const thumbnail = await generateThumbnail(script, thumbnailPath, true); // true = deep dive mode
+
+    return thumbnail;
+  } catch (error) {
+    console.error('Error generating deep dive thumbnail:', error);
+    throw error;
+  }
 }
 
