@@ -2,6 +2,79 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
 
+// EST timezone helpers (America/New_York handles EST/EDT automatically)
+const EST_TIMEZONE = 'America/New_York';
+
+// Convert EST datetime-local string to UTC ISO string
+function estToUTC(estDateTime: string): string {
+  const [datePart, timePart] = estDateTime.split('T');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hours, minutes] = timePart.split(':').map(Number);
+  
+  const estDateString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+  const estDate = new Date(estDateString);
+  
+  // Get EST offset for this date (handles DST)
+  const estOffsetMs = getESTOffsetMs(estDate);
+  const utcDateFinal = new Date(estDate.getTime() - estOffsetMs);
+  return utcDateFinal.toISOString();
+}
+
+// Get EST offset in milliseconds for a given date (handles DST automatically)
+function getESTOffsetMs(date: Date): number {
+  const estTimeString = date.toLocaleString('en-US', { 
+    timeZone: EST_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  const utcString = date.toLocaleString('en-US', { timeZone: 'UTC' });
+  const estDate = new Date(estTimeString);
+  const utcDate = new Date(utcString);
+  return estDate.getTime() - utcDate.getTime();
+}
+
+// Format date for display in EST
+function formatEST(dateISO: string): string {
+  return new Date(dateISO).toLocaleString('en-US', {
+    timeZone: EST_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  });
+}
+
+// Get current time in EST format for datetime-local min attribute
+function getCurrentEST(): string {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: EST_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+  
+  const parts = formatter.formatToParts(now);
+  const year = parts.find(p => p.type === 'year')!.value;
+  const month = parts.find(p => p.type === 'month')!.value;
+  const day = parts.find(p => p.type === 'day')!.value;
+  const hour = parts.find(p => p.type === 'hour')!.value;
+  const minute = parts.find(p => p.type === 'minute')!.value;
+  
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+
 interface TopicRequest {
   topic: string;
   count: number;
@@ -113,8 +186,8 @@ function DeepDive() {
     try {
       const payload: { cadenceHours: number; startTime?: string } = { cadenceHours: hours };
       if (startTimeInput) {
-        // Convert datetime-local to ISO string
-        const startTime = new Date(startTimeInput).toISOString();
+        // Convert EST datetime-local to UTC ISO string
+        const startTime = estToUTC(startTimeInput);
         payload.startTime = startTime;
       }
       const response = await axios.post('/api/deepdive/automation/start', payload);
@@ -340,10 +413,10 @@ function DeepDive() {
                   <div className="automation-info">
                     <p><strong>Cadence:</strong> Every {automationState.cadenceHours} hour{automationState.cadenceHours !== 1 ? 's' : ''}</p>
                     {automationState.lastRun && (
-                      <p><strong>Last Run:</strong> {new Date(automationState.lastRun).toLocaleString()}</p>
+                      <p><strong>Last Run:</strong> {formatEST(automationState.lastRun)} EST</p>
                     )}
                     {automationState.nextRun && (
-                      <p><strong>Next Run:</strong> {new Date(automationState.nextRun).toLocaleString()}</p>
+                      <p><strong>Next Run:</strong> {formatEST(automationState.nextRun)} EST</p>
                     )}
                   </div>
                 )}
@@ -383,7 +456,7 @@ function DeepDive() {
                     onChange={(e) => setStartTimeInput(e.target.value)}
                     disabled={automationLoading}
                     className="start-time-input"
-                    min={new Date().toISOString().slice(0, 16)}
+                    min={getCurrentEST()}
                   />
                   <p className="help-text">Leave empty to start immediately</p>
                 </div>

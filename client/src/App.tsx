@@ -3,6 +3,83 @@ import axios from 'axios';
 import DeepDive from './DeepDive';
 import './App.css';
 
+// EST timezone helpers (America/New_York handles EST/EDT automatically)
+const EST_TIMEZONE = 'America/New_York';
+
+// Convert EST datetime-local string to UTC ISO string
+// datetime-local format: "YYYY-MM-DDTHH:mm" (assumed to be in EST)
+function estToUTC(estDateTime: string): string {
+  const [datePart, timePart] = estDateTime.split('T');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hours, minutes] = timePart.split(':').map(Number);
+  
+  // Create a date string
+  const dateString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+  
+  // Create a date object (this will be in local time, but we'll treat it as EST)
+  // We need to calculate the offset between EST and UTC for this specific date
+  const testDate = new Date(dateString);
+  const estOffsetMs = getESTOffsetMs(testDate);
+  const utcDate = new Date(testDate.getTime() - estOffsetMs);
+  return utcDate.toISOString();
+}
+
+// Get EST offset in milliseconds for a given date (handles DST automatically)
+function getESTOffsetMs(date: Date): number {
+  // Get the same moment in both EST and UTC, then calculate the difference
+  const estTimeString = date.toLocaleString('en-US', { 
+    timeZone: EST_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  const utcString = date.toLocaleString('en-US', { timeZone: 'UTC' });
+  const estDate = new Date(estTimeString);
+  const utcDate = new Date(utcString);
+  return estDate.getTime() - utcDate.getTime();
+}
+
+// Format date for display in EST
+function formatEST(dateISO: string): string {
+  return new Date(dateISO).toLocaleString('en-US', {
+    timeZone: EST_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  });
+}
+
+// Get current time in EST format for datetime-local min attribute
+function getCurrentEST(): string {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: EST_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+  
+  const parts = formatter.formatToParts(now);
+  const year = parts.find(p => p.type === 'year')!.value;
+  const month = parts.find(p => p.type === 'month')!.value;
+  const day = parts.find(p => p.type === 'day')!.value;
+  const hour = parts.find(p => p.type === 'hour')!.value;
+  const minute = parts.find(p => p.type === 'minute')!.value;
+  
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+
 interface JobProgress {
   jobId: string;
   status: 'pending' | 'scraping' | 'analyzing' | 'fetching_prices' | 'fetching_nfts' | 'generating_script' | 'creating_video' | 'updating_timestamps' | 'creating_thumbnail' | 'ready' | 'uploading' | 'completed' | 'error';
@@ -255,8 +332,8 @@ function App() {
     try {
       const payload: { cadenceHours: number; startTime?: string } = { cadenceHours: hours };
       if (startTimeInput) {
-        // Convert datetime-local to ISO string
-        const startTime = new Date(startTimeInput).toISOString();
+        // Convert EST datetime-local to UTC ISO string
+        const startTime = estToUTC(startTimeInput);
         payload.startTime = startTime;
       }
       const response = await axios.post('/api/automation/start', payload);
@@ -376,10 +453,10 @@ function App() {
                   <div className="automation-info">
                     <p><strong>Cadence:</strong> Every {automationState.cadenceHours} hour{automationState.cadenceHours !== 1 ? 's' : ''}</p>
                     {automationState.lastRun && (
-                      <p><strong>Last Run:</strong> {new Date(automationState.lastRun).toLocaleString()}</p>
+                      <p><strong>Last Run:</strong> {formatEST(automationState.lastRun)} EST</p>
                     )}
                     {automationState.nextRun && (
-                      <p><strong>Next Run:</strong> {new Date(automationState.nextRun).toLocaleString()}</p>
+                      <p><strong>Next Run:</strong> {formatEST(automationState.nextRun)} EST</p>
                     )}
                   </div>
                 )}
@@ -419,7 +496,7 @@ function App() {
                     onChange={(e) => setStartTimeInput(e.target.value)}
                     disabled={automationLoading}
                     className="start-time-input"
-                    min={new Date().toISOString().slice(0, 16)}
+                    min={getCurrentEST()}
                   />
                   <p className="help-text">Leave empty to start immediately</p>
                 </div>
