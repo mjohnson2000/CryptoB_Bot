@@ -225,12 +225,14 @@ function App() {
           nextRun: response.data.nextRun,
           currentJobId: response.data.currentJobId
         });
-        // Only update input if it's empty or matches the default, and server has a valid value
-        // If server has old value (like 4), update to 6 (new default) if input is empty/default
-        if (!cadenceInput || cadenceInput === '6') {
-          // Use 6 as default if server has old value, otherwise use server value
-          const defaultCadence = response.data.cadenceHours === 4 ? 6 : response.data.cadenceHours;
-          setCadenceInput(defaultCadence.toString());
+        // Always update input to match server, but convert old 4-hour default to new 6-hour default
+        // This ensures UI always shows correct value, and migrates old 4-hour cadence to 6 hours
+        if (response.data.cadenceHours === 4) {
+          // Server has old 4-hour cadence, update to 6 hours (new default)
+          setCadenceInput('6');
+        } else {
+          // Use server value (should be 6 or user-set value)
+          setCadenceInput(response.data.cadenceHours.toString());
         }
       }
     } catch (err) {
