@@ -210,7 +210,10 @@ function App() {
     return `/api/video/preview/thumbnail/${filename}`;
   };
 
-  // Fetch automation status
+  // Fetch automation status from server
+  // NOTE: Automation runs on the server and persists across page refreshes.
+  // This function only fetches and displays the current state - it does NOT control automation.
+  // Automation can only be stopped by clicking the Stop button (which calls the API).
   const fetchAutomationStatus = async () => {
     try {
       const response = await axios.get<{ success: boolean; isRunning: boolean; cadenceHours: number; lastRun?: string; nextRun?: string; currentJobId?: string }>('/api/automation/status');
@@ -222,11 +225,17 @@ function App() {
           nextRun: response.data.nextRun,
           currentJobId: response.data.currentJobId
         });
+        // Only update input if it's empty or matches the default, and server has a valid value
+        // If server has old value (like 4), update to 6 (new default) if input is empty/default
         if (!cadenceInput || cadenceInput === '6') {
-          setCadenceInput(response.data.cadenceHours.toString());
+          // Use 6 as default if server has old value, otherwise use server value
+          const defaultCadence = response.data.cadenceHours === 4 ? 6 : response.data.cadenceHours;
+          setCadenceInput(defaultCadence.toString());
         }
       }
     } catch (err) {
+      // Don't update state on error - keep showing last known state
+      // This ensures automation appears to continue running even if there's a temporary network issue
       console.error('Error fetching automation status:', err);
     }
   };

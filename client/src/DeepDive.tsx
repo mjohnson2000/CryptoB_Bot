@@ -74,7 +74,10 @@ function DeepDive() {
     }
   };
 
-  // Fetch automation status
+  // Fetch automation status from server
+  // NOTE: Automation runs on the server and persists across page refreshes.
+  // This function only fetches and displays the current state - it does NOT control automation.
+  // Automation can only be stopped by clicking the Stop button (which calls the API).
   const fetchAutomationStatus = async () => {
     try {
       const response = await axios.get<{ success: boolean; isRunning: boolean; cadenceHours: number; lastRun?: string; nextRun?: string; currentJobId?: string }>('/api/deepdive/automation/status');
@@ -91,6 +94,8 @@ function DeepDive() {
         }
       }
     } catch (err) {
+      // Don't update state on error - keep showing last known state
+      // This ensures automation appears to continue running even if there's a temporary network issue
       console.error('Error fetching deep dive automation status:', err);
     }
   };
