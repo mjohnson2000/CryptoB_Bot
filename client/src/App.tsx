@@ -46,24 +46,6 @@ function estToUTC(estDateTime: string): string {
   return finalUTC.toISOString();
 }
 
-// Get EST offset in milliseconds for a given date (handles DST automatically)
-function getESTOffsetMs(date: Date): number {
-  // Get the same moment in both EST and UTC, then calculate the difference
-  const estTimeString = date.toLocaleString('en-US', { 
-    timeZone: EST_TIMEZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  });
-  const utcString = date.toLocaleString('en-US', { timeZone: 'UTC' });
-  const estDate = new Date(estTimeString);
-  const utcDate = new Date(utcString);
-  return estDate.getTime() - utcDate.getTime();
-}
 
 // Format date for display in EST
 function formatEST(dateISO: string): string {
