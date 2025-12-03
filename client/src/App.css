@@ -6,6 +6,7 @@
   align-items: center;
   position: relative;
   z-index: 1;
+  pointer-events: auto;
 }
 
 /* Admin section input placeholders - black color */
@@ -74,6 +75,9 @@
   border-radius: 20px;
   padding: 2.5rem;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  pointer-events: auto;
+  position: relative;
+  z-index: 10;
 }
 
 .card-header {
@@ -109,6 +113,8 @@
   box-shadow: 0 4px 15px rgba(247, 147, 26, 0.3);
   position: relative;
   overflow: hidden;
+  pointer-events: auto;
+  z-index: 10;
 }
 
 .create-button::before {
@@ -693,6 +699,9 @@
   justify-content: center;
   gap: 0.5rem;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  pointer-events: auto;
+  position: relative;
+  z-index: 10;
 }
 
 .start-automation-button {
@@ -769,6 +778,9 @@
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.3s ease;
+  pointer-events: auto;
+  position: relative;
+  z-index: 10;
 }
 
 .tab:hover {
