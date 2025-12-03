@@ -593,16 +593,25 @@
 .youtube-link-button {
   display: inline-block;
   padding: 0.75rem 1.5rem;
-  background: #ff0000;
-  color: white;
+  background: linear-gradient(135deg, var(--degen-orange) 0%, var(--degen-orange-dark) 100%);
+  color: var(--degen-text);
   text-decoration: none;
   border-radius: 8px;
   font-weight: 600;
-  transition: background 0.2s;
+  border: 2px solid var(--degen-orange);
+  box-shadow: 
+    0 2px 8px rgba(247, 147, 26, 0.4),
+    0 0 10px var(--degen-shadow-orange);
+  transition: all 0.2s;
 }
 
 .youtube-link-button:hover {
-  background: #cc0000;
+  background: linear-gradient(135deg, var(--degen-orange-bright) 0%, var(--degen-orange) 100%);
+  border-color: var(--degen-orange-bright);
+  box-shadow: 
+    0 6px 20px var(--degen-shadow-orange),
+    0 0 15px rgba(247, 147, 26, 0.6);
+  transform: translateY(-2px);
 }
 
 .blog-content-full {
