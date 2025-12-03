@@ -2111,7 +2111,7 @@ export async function generateThumbnail(
       ctx.font = 'bold 30px Arial'; // Increased from 20px to 30px (10px larger)
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(dateTimeStr, dateBadgeX + (dateBadgeWidth / 2), dateBadgeY + (dateBadgeHeight / 2) + 4); // Moved up by 7px (from +11 to +4)
+      ctx.fillText(dateTimeStr, dateBadgeX + (dateBadgeWidth / 2), dateBadgeY + (dateBadgeHeight / 2) + 6.5); // Moved down by 2.5px (from +4 to +6.5)
 
       // PROVEN STYLE: "LATEST" badge - simple and clean
       const drawBadge = (x: number, y: number, width: number, height: number, radius: number) => {
@@ -2171,17 +2171,17 @@ export async function generateThumbnail(
       // Shadow
       ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
       ctx.font = 'bold 36px Arial'; // Doubled from 18px
-      ctx.fillText('CB', logoX + 2, logoY + 7); // Moved up by 7px (from +14 to +7)
+      ctx.fillText('CB', logoX + 2, logoY + 9.5); // Moved down by 2.5px (from +7 to +9.5)
       
       // Outline
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 3; // Doubled from 1.5
-      ctx.strokeText('CB', logoX, logoY + 5); // Moved up by 7px (from +12 to +5)
+      ctx.strokeText('CB', logoX, logoY + 7.5); // Moved down by 2.5px (from +5 to +7.5)
       
       // Main text
       ctx.fillStyle = '#000000';
       ctx.font = 'bold 36px Arial'; // Doubled from 18px
-      ctx.fillText('CB', logoX, logoY + 5); // Moved up by 7px (from +12 to +5)
+      ctx.fillText('CB', logoX, logoY + 7.5); // Moved down by 2.5px (from +5 to +7.5)
       
       // Bitcoin orange badge (matching logo gradient for consistency)
       const logoSpacing = 15; // Space between logo and badge
@@ -2215,7 +2215,7 @@ export async function generateThumbnail(
       ctx.font = 'bold 34px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(badgeText, badgeX + (badgeWidth / 2), badgeY + (badgeHeight / 2) + 6); // Moved up by 7px (from +13 to +6)
+      ctx.fillText(badgeText, badgeX + (badgeWidth / 2), badgeY + (badgeHeight / 2) + 8.5); // Moved down by 2.5px (from +6 to +8.5)
       
       // Add "Based on Your Comments" text for deep dive
       if (isDeepDive) {
@@ -2512,10 +2512,10 @@ export async function generateThumbnail(
   <circle cx="55" cy="82.5" r="52" fill="url(#logoGlow)"/>
   <circle cx="55" cy="82.5" r="40" fill="url(#logoGrad)"/>
   <circle cx="55" cy="82.5" r="24" fill="url(#logoHighlight)"/>
-  <text x="55" y="87.5" font-family="Arial, sans-serif" font-size="36" font-weight="bold" fill="#000000" text-anchor="middle" dominant-baseline="middle" stroke="#ffffff" stroke-width="3">CB</text>
+  <text x="55" y="90" font-family="Arial, sans-serif" font-size="36" font-weight="bold" fill="#000000" text-anchor="middle" dominant-baseline="middle" stroke="#ffffff" stroke-width="3">CB</text>
   <!-- Badge moved to the right after logo - using same gradient as logo for consistency -->
   <rect x="110" y="50" width="420" height="65" rx="10" fill="url(#badgeGrad)"/>
-  <text x="320" y="88.5" font-family="Arial, sans-serif" font-size="34" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" dominant-baseline="middle">${isDeepDive ? 'DEEP DIVE' : 'LATEST CRYPTO NEWS!'}</text>
+  <text x="320" y="91" font-family="Arial, sans-serif" font-size="34" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" dominant-baseline="middle">${isDeepDive ? 'DEEP DIVE' : 'LATEST CRYPTO NEWS!'}</text>
   <!-- Title centered at x=640 (center of 1280px thumbnail) for equal space on both sides -->
   <text x="640" y="${textY}" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" stroke="#000000" stroke-width="3">
     <tspan x="640" dy="0" font-weight="bold">${line1}</tspan>
@@ -2525,7 +2525,7 @@ export async function generateThumbnail(
     ${line5 ? `<tspan x="640" dy="${lineSpacing}" font-weight="bold">${line5}</tspan>` : ''}
   </text>
   <rect x="911" y="55" width="350" height="55" rx="8" fill="rgba(0,0,0,0.8)" stroke="${accentColorRgb}" stroke-width="2"/>
-  <text x="1086" y="86.5" font-family="Arial, sans-serif" font-size="30" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" dominant-baseline="middle">${escapeXml(dateTimeStr)}</text>
+  <text x="1086" y="89" font-family="Arial, sans-serif" font-size="30" font-weight="bold" fill="${textColorRgb}" text-anchor="middle" dominant-baseline="middle">${escapeXml(dateTimeStr)}</text>
 </svg>`;
       
       const sharpModule = await import('sharp');
