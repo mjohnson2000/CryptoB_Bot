@@ -1,4 +1,5 @@
 import { createVideo, approveAndUpload, VideoCreationResult } from './videoOrchestrator.js';
+import { getCurrentESTTime, getCurrentESTISOString, addHoursEST } from '../utils/timeUtils.js';
 
 export interface AutomationState {
   isRunning: boolean;
@@ -58,8 +59,9 @@ class AutomationService {
     }
     
     // Calculate when to run the first video (startTime was provided)
+    // Convert startTime to EST if it's a string
     let firstRunTime: Date = typeof startTime === 'string' ? new Date(startTime) : startTime;
-    const now = new Date();
+    const now = getCurrentESTTime();
     if (firstRunTime <= now) {
       console.warn('⚠️ Start time is in the past, running immediately');
       firstRunTime = now;
@@ -133,11 +135,11 @@ class AutomationService {
           nextRun = this.calculateNextRunTime().toISOString();
         } catch (error) {
           console.error('Error calculating next run time:', error);
-          // Fallback: calculate from lastRun or now
+          // Fallback: calculate from lastRun or now in EST
           if (this.state.lastRun) {
-            nextRun = new Date(this.state.lastRun.getTime() + (this.state.cadenceHours * 60 * 60 * 1000)).toISOString();
+            nextRun = addHoursEST(this.state.lastRun, this.state.cadenceHours).toISOString();
           } else {
-            nextRun = new Date(Date.now() + (this.state.cadenceHours * 60 * 60 * 1000)).toISOString();
+            nextRun = addHoursEST(getCurrentESTTime(), this.state.cadenceHours).toISOString();
           }
         }
       }
@@ -191,10 +193,10 @@ class AutomationService {
   private async runAutomatedVideoCreation(): Promise<void> {
     const jobId = Date.now().toString();
     this.state.currentJobId = jobId;
-    this.state.lastRun = new Date();
+    this.state.lastRun = getCurrentESTTime();
     
     console.log(`\n🤖 [AUTOMATION] Starting automated video creation (Job ID: ${jobId})`);
-    console.log(`   Scheduled run at ${this.state.lastRun.toISOString()}`);
+    console.log(`   Scheduled run at ${this.state.lastRun.toISOString()} (EST)`);
     
     try {
       // Create video (this will handle all the steps)
@@ -259,20 +261,19 @@ class AutomationService {
    */
   private calculateNextRunTime(firstRunTime?: Date): Date {
     if (!this.state.isRunning) {
-      return new Date();
+      return getCurrentESTTime();
     }
     
     if (firstRunTime) {
-      // If first run is scheduled, calculate from that time
-      return new Date(firstRunTime.getTime() + (this.state.cadenceHours * 60 * 60 * 1000));
+      // If first run is scheduled, calculate from that time in EST
+      return addHoursEST(firstRunTime, this.state.cadenceHours);
     }
     
     if (this.state.lastRun) {
-      const nextRun = new Date(this.state.lastRun.getTime() + (this.state.cadenceHours * 60 * 60 * 1000));
-      return nextRun;
+      return addHoursEST(this.state.lastRun, this.state.cadenceHours);
     }
     
-    return new Date(Date.now() + (this.state.cadenceHours * 60 * 60 * 1000));
+    return addHoursEST(getCurrentESTTime(), this.state.cadenceHours);
   }
 
   /**

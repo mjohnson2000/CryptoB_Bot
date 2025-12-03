@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { copyFile } from 'fs/promises';
 import { BlogPost } from './blogService.js';
+import { getCurrentESTISOString } from '../utils/timeUtils.js';
 
 export interface StoredBlogPost extends BlogPost {
   id: string;
@@ -101,7 +102,7 @@ export async function saveBlogPost(
     const blogs = await loadBlogIndex();
     
     const id = `blog-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    const now = new Date().toISOString();
+    const now = getCurrentESTISOString();
     
     const storedPost: StoredBlogPost = {
       ...blogPost,
@@ -213,7 +214,7 @@ export async function updateBlogPost(
       ...blogs[index],
       ...updates,
       id,
-      updatedAt: new Date().toISOString()
+      updatedAt: getCurrentESTISOString()
     };
     
     blogs[index] = updatedPost;

@@ -1,5 +1,6 @@
 import { createDeepDiveVideo, approveAndUploadDeepDive, DeepDiveResult } from './deepDiveOrchestrator.js';
 import { v4 as uuidv4 } from 'uuid';
+import { getCurrentESTTime, addHoursEST } from '../utils/timeUtils.js';
 
 export interface DeepDiveAutomationState {
   isRunning: boolean;
@@ -64,7 +65,7 @@ class DeepDiveAutomationService {
     
     // Calculate when to run the first video (startTime was provided)
     let firstRunTime: Date = typeof startTime === 'string' ? new Date(startTime) : startTime;
-    const now = new Date();
+    const now = getCurrentESTTime();
     if (firstRunTime <= now) {
       console.warn('⚠️ Start time is in the past, running immediately');
       firstRunTime = now;
@@ -139,11 +140,26 @@ class DeepDiveAutomationService {
    * Get current deep dive automation state
    */
   getState(): DeepDiveAutomationState {
+    let nextRun: string | undefined;
+    if (this.state.isRunning) {
+      try {
+        nextRun = this.calculateNextRunTime().toISOString();
+      } catch (error) {
+        console.error('Error calculating next run time:', error);
+        // Fallback: calculate from lastRun or now in EST
+        if (this.state.lastRun) {
+          nextRun = addHoursEST(this.state.lastRun, this.state.cadenceHours).toISOString();
+        } else {
+          nextRun = addHoursEST(getCurrentESTTime(), this.state.cadenceHours).toISOString();
+        }
+      }
+    }
+    
     const state: DeepDiveAutomationState = {
       isRunning: this.state.isRunning,
       cadenceHours: this.state.cadenceHours,
       lastRun: this.state.lastRun?.toISOString(),
-      nextRun: this.state.isRunning ? this.calculateNextRunTime().toISOString() : undefined,
+      nextRun,
       currentJobId: this.state.currentJobId
     };
     return state;
@@ -176,11 +192,11 @@ class DeepDiveAutomationService {
   private async runAutomatedDeepDiveCreation(): Promise<void> {
     const jobId = uuidv4();
     this.state.currentJobId = jobId;
-    this.state.lastRun = new Date();
+    this.state.lastRun = getCurrentESTTime();
     this.updateNextRunTime();
 
     console.log(`\n🎬 [${jobId}] Starting automated deep dive video creation...`);
-    console.log(`📅 Scheduled run at ${this.state.lastRun.toISOString()}`);
+    console.log(`📅 Scheduled run at ${this.state.lastRun.toISOString()} (EST)`);
 
     try {
       // Create deep dive video (will automatically select most requested topic from comments, or trending topic from news if no comments)
@@ -238,22 +254,19 @@ class DeepDiveAutomationService {
    */
   private calculateNextRunTime(firstRunTime?: Date): Date {
     if (!this.state.isRunning) {
-      return new Date();
+      return getCurrentESTTime();
     }
     
     if (firstRunTime) {
-      // If first run is scheduled, calculate from that time
-      return new Date(firstRunTime.getTime() + (this.state.cadenceHours * 60 * 60 * 1000));
+      // If first run is scheduled, calculate from that time in EST
+      return addHoursEST(firstRunTime, this.state.cadenceHours);
     }
     
     if (this.state.lastRun) {
-      const nextRun = new Date(this.state.lastRun.getTime() + (this.state.cadenceHours * 60 * 60 * 1000));
-      return nextRun;
+      return addHoursEST(this.state.lastRun, this.state.cadenceHours);
     }
     
-    const now = new Date();
-    const nextRun = new Date(now.getTime() + (this.state.cadenceHours * 60 * 60 * 1000));
-    return nextRun;
+    return addHoursEST(getCurrentESTTime(), this.state.cadenceHours);
   }
 
   /**
