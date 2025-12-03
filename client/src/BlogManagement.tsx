@@ -99,7 +99,7 @@ function BlogManagement() {
         tags: formData.tags.split(',').map(t => t.trim()).filter(t => t),
         categories: formData.categories.split(',').map(c => c.trim()).filter(c => c),
         featuredImageUrl: videoId ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` : undefined,
-        videoEmbedCode: videoId ? `<iframe width="560" height="315" src="https://www.youtube.com/embed/${videoId}" style="border: 0;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>` : ''
+        videoEmbedCode: videoId ? `<iframe width="560" height="315" src="https://www.youtube.com/embed/${videoId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>` : ''
       };
 
       const response = await axios.post('/api/blog', {

@@ -452,26 +452,19 @@ function Blog() {
               </div>
             </header>
 
-            {selectedBlog.videoUrl && selectedBlog.videoId && (
+            {selectedBlog.videoUrl && (
               <div className="blog-video-section">
-                <div className="video-embed">
-                  <iframe
-                    width="560"
-                    height="315"
-                    src={`https://www.youtube.com/embed/${selectedBlog.videoId}`}
-                    style={{ border: 0 }}
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                    title={selectedBlog.title}
-                  />
-                </div>
+                <div
+                  className="video-embed"
+                  dangerouslySetInnerHTML={{ __html: selectedBlog.videoEmbedCode }}
+                />
                 <a
                   href={selectedBlog.videoUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="youtube-link-button"
                 >
-                  🎥 Watch the Full Send on YouTube
+                  🎥 Watch the Full Video on YouTube
                 </a>
               </div>
             )}
@@ -652,22 +645,7 @@ function Blog() {
                   >
                     {blog.featuredImageUrl && (
                       <div className="blog-card-image">
-                        <img 
-                          src={blog.featuredImageUrl} 
-                          alt={blog.title}
-                          onError={(e) => {
-                            // Fallback to default thumbnail if maxresdefault fails
-                            const target = e.target as HTMLImageElement;
-                            if (target.src.includes('maxresdefault')) {
-                              const videoId = blog.videoId || blog.featuredImageUrl?.match(/vi\/([^\/]+)/)?.[1];
-                              if (videoId) {
-                                target.src = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
-                              } else {
-                                target.style.display = 'none';
-                              }
-                            }
-                          }}
-                        />
+                        <img src={blog.featuredImageUrl} alt={blog.title} />
                       </div>
                     )}
                     <div className="blog-card-content">
@@ -694,7 +672,7 @@ function Blog() {
                         onClick={(e) => e.stopPropagation()}
                         className="blog-card-video-link"
                       >
-                        🎥 Full Send →
+                        🎥 Full Video →
                       </a>
                     )}
                       </div>
