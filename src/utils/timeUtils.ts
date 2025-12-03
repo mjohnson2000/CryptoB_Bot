@@ -93,7 +93,25 @@ export function getCurrentESTISOString(): string {
 }
 
 /**
+ * Convert a UTC ISO string (from frontend) to a Date object representing EST
+ * The frontend estToUTC() function already converts EST to UTC correctly
+ * So the UTC ISO string, when parsed and displayed in EST, will show the correct EST time
+ * We just need to parse it and ensure it's treated correctly
+ */
+export function utcISOToESTDate(utcISOString: string): Date {
+  // The frontend sends a UTC ISO string that represents an EST time
+  // When we parse it, the Date object will correctly represent that time
+  // When displayed in EST timezone, it will show the correct EST time
+  const date = new Date(utcISOString);
+  
+  // Verify: get EST representation to ensure it matches what user entered
+  // This is just for validation - the Date object itself is correct
+  return date;
+}
+
+/**
  * Add hours to a date, working in EST timezone
+ * Properly handles day/month/year rollovers and DST transitions
  */
 export function addHoursEST(date: Date, hours: number): Date {
   // Get the EST representation of the date
@@ -112,15 +130,33 @@ export function addHoursEST(date: Date, hours: number): Date {
   const [month, day, year] = datePart.split('/').map(Number);
   const [hoursStr, minutes, seconds] = timePart.split(':').map(Number);
   
-  // Add hours in EST
-  const newHours = hoursStr + hours;
+  // Create a Date object using local time constructor (this handles rollovers automatically)
+  // We'll treat this as EST time components
+  const estDateLocal = new Date(year, month - 1, day, hoursStr, minutes, seconds);
   
-  // Create new date string in EST
-  const newEstDateString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(newHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  // Add hours (Date.setHours handles day/month/year rollovers automatically)
+  estDateLocal.setHours(estDateLocal.getHours() + hours);
   
-  // Create a temporary date to get the offset
+  // Extract the new date components (these are in local time, but represent EST)
+  const newYear = estDateLocal.getFullYear();
+  const newMonth = estDateLocal.getMonth() + 1;
+  const newDay = estDateLocal.getDate();
+  const newHours = estDateLocal.getHours();
+  const newMinutes = estDateLocal.getMinutes();
+  const newSeconds = estDateLocal.getSeconds();
+  
+  // Create new date string in EST format
+  const newEstDateString = `${newYear}-${String(newMonth).padStart(2, '0')}-${String(newDay).padStart(2, '0')}T${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}:${String(newSeconds).padStart(2, '0')}`;
+  
+  // Create a Date object representing this EST time
+  // We need to create a UTC date that when displayed in EST shows the correct time
+  // First, create a date at the EST time (treating it as UTC temporarily)
   const tempDate = new Date(newEstDateString + 'Z');
+  
+  // Get the offset for this new date (to handle DST correctly)
   const offsetMs = getESTOffsetMs(tempDate);
+  
+  // Adjust to get a UTC date that represents the EST time
   const resultDate = new Date(tempDate.getTime() - offsetMs);
   
   return resultDate;

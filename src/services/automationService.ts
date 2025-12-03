@@ -1,5 +1,5 @@
 import { createVideo, approveAndUpload, VideoCreationResult } from './videoOrchestrator.js';
-import { getCurrentESTTime, getCurrentESTISOString, addHoursEST } from '../utils/timeUtils.js';
+import { getCurrentESTTime, getCurrentESTISOString, addHoursEST, utcISOToESTDate } from '../utils/timeUtils.js';
 
 export interface AutomationState {
   isRunning: boolean;
@@ -59,8 +59,14 @@ class AutomationService {
     }
     
     // Calculate when to run the first video (startTime was provided)
-    // Convert startTime to EST if it's a string
-    let firstRunTime: Date = typeof startTime === 'string' ? new Date(startTime) : startTime;
+    // Convert startTime to EST Date object if it's a string (UTC ISO from frontend)
+    let firstRunTime: Date;
+    if (typeof startTime === 'string') {
+      // Frontend sends UTC ISO string representing EST time, convert it properly
+      firstRunTime = utcISOToESTDate(startTime);
+    } else {
+      firstRunTime = startTime;
+    }
     const now = getCurrentESTTime();
     if (firstRunTime <= now) {
       console.warn('⚠️ Start time is in the past, running immediately');
@@ -131,15 +137,21 @@ class AutomationService {
     try {
       let nextRun: string | undefined;
       if (this.state.isRunning) {
-        try {
-          nextRun = this.calculateNextRunTime().toISOString();
-        } catch (error) {
-          console.error('Error calculating next run time:', error);
-          // Fallback: calculate from lastRun or now in EST
-          if (this.state.lastRun) {
-            nextRun = addHoursEST(this.state.lastRun, this.state.cadenceHours).toISOString();
-          } else {
-            nextRun = addHoursEST(getCurrentESTTime(), this.state.cadenceHours).toISOString();
+        // If nextRun is already set (from startTime), use it directly
+        if (this.state.nextRun) {
+          nextRun = this.state.nextRun.toISOString();
+        } else {
+          // Otherwise, calculate from lastRun or now
+          try {
+            nextRun = this.calculateNextRunTime().toISOString();
+          } catch (error) {
+            console.error('Error calculating next run time:', error);
+            // Fallback: calculate from lastRun or now in EST
+            if (this.state.lastRun) {
+              nextRun = addHoursEST(this.state.lastRun, this.state.cadenceHours).toISOString();
+            } else {
+              nextRun = addHoursEST(getCurrentESTTime(), this.state.cadenceHours).toISOString();
+            }
           }
         }
       }
