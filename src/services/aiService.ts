@@ -317,10 +317,10 @@ Format your response as JSON:
       thumbnailTitle = thumbnailTitle.trim();
     }
     
-    // Always use AI to create an optimal 3-word max thumbnail title
+    // Always use AI to create an optimal 3-word thumbnail title
     try {
       const thumbnailPrompt = `Create a SHORT, CATCHY thumbnail title for a YouTube crypto news video. This will be displayed on a thumbnail image, so it needs to be:
-- EXACTLY 3 words maximum (no more, no less if possible)
+- EXACTLY 3 words (no more, no less - must be exactly 3 words)
 - Eye-catching and clickable
 - Use power words (BREAKING, SHOCKING, INSANE, MOONING, CRASH, SURGE, etc.)
 - Keep the main message but make it punchy and attention-grabbing
@@ -331,14 +331,14 @@ Format your response as JSON:
 
 Original title: "${thumbnailTitle}"
 
-Return ONLY the 3-word thumbnail title in ALL CAPS, nothing else. No quotes, no explanations. Make it exciting and clickable but NO emojis.`;
+Return ONLY the 3-word thumbnail title in ALL CAPS, nothing else. No quotes, no explanations. Make it exciting and clickable but NO emojis. It MUST be exactly 3 words.`;
 
         const thumbnailResponse = await openai.chat.completions.create({
           model: 'gpt-4-turbo-preview',
           messages: [
             {
               role: 'system',
-              content: 'You are an expert at creating short, catchy YouTube thumbnail titles that grab attention. Always return exactly 3 words when possible. Use ALL CAPS and power words, but NO emojis.'
+              content: 'You are an expert at creating short, catchy YouTube thumbnail titles that grab attention. You MUST always return exactly 3 words - no more, no less. Use ALL CAPS and power words, but NO emojis.'
             },
             {
               role: 'user',
@@ -382,20 +382,42 @@ Return ONLY the 3-word thumbnail title in ALL CAPS, nothing else. No quotes, no 
           // Convert to ALL CAPS for maximum impact (but preserve numbers and punctuation)
           shortTitle = shortTitle.replace(/[a-z]/g, (match: string) => match.toUpperCase());
           
-          // Ensure it's 3 words max
+          // Enforce exactly 3 words
           const words = shortTitle.split(/\s+/).filter((w: string) => w.length > 0);
           if (words.length > 3) {
+            // Take first 3 words if more than 3
             thumbnailTitle = words.slice(0, 3).join(' ');
+          } else if (words.length < 3) {
+            // If less than 3 words, pad with power words or take from original title
+            const originalWords = thumbnailTitle.split(/\s+/).filter((w: string) => w.length > 0);
+            if (originalWords.length >= 3) {
+              thumbnailTitle = originalWords.slice(0, 3).join(' ').toUpperCase();
+            } else {
+              // Last resort: pad with "CRYPTO NEWS" or similar
+              const powerWords = ['BREAKING', 'SHOCKING', 'INSANE', 'MOONING', 'CRASH', 'SURGE'];
+              while (words.length < 3) {
+                words.push(powerWords[words.length % powerWords.length]);
+              }
+              thumbnailTitle = words.slice(0, 3).join(' ');
+            }
           } else {
+            // Exactly 3 words - perfect!
             thumbnailTitle = shortTitle;
           }
-          console.log(`✅ Generated 3-word thumbnail title: "${thumbnailTitle}"`);
+          console.log(`✅ Generated 3-word thumbnail title: "${thumbnailTitle}" (${thumbnailTitle.split(/\s+/).length} words)`);
         }
       } catch (error) {
         console.warn('Failed to generate thumbnail title, using fallback:', error);
         // Fallback: take first 3 words of original title
         const words = thumbnailTitle.split(/\s+/).filter((w: string) => w.length > 0);
-        if (words.length > 3) {
+        if (words.length >= 3) {
+          thumbnailTitle = words.slice(0, 3).join(' ').toUpperCase();
+        } else {
+          // Pad to 3 words if needed
+          const powerWords = ['BREAKING', 'SHOCKING', 'INSANE'];
+          while (words.length < 3) {
+            words.push(powerWords[words.length % powerWords.length]);
+          }
           thumbnailTitle = words.slice(0, 3).join(' ');
         }
       }
@@ -901,7 +923,7 @@ Format your response as JSON:
     
     try {
       const thumbnailPrompt = `Create a SHORT, CATCHY thumbnail title for a YouTube crypto deep dive video. This will be displayed on a thumbnail image, so it needs to be:
-- EXACTLY 3 words maximum (no more, no less if possible)
+- EXACTLY 3 words (no more, no less - must be exactly 3 words)
 - Eye-catching and clickable
 - Use power words (BREAKING, SHOCKING, INSANE, MOONING, CRASH, SURGE, EXPLAINED, REVEALED, SECRETS, etc.)
 - Keep the main message but make it punchy and attention-grabbing
@@ -913,14 +935,14 @@ Format your response as JSON:
 Topic being explained: "${topicForThumbnail}"
 Original video title: "${parsed.title || `DEEP DIVE: ${topic}`}"
 
-Return ONLY the 3-word thumbnail title in ALL CAPS, nothing else. No quotes, no explanations. Make it exciting and clickable but NO emojis.`;
+Return ONLY the 3-word thumbnail title in ALL CAPS, nothing else. No quotes, no explanations. Make it exciting and clickable but NO emojis. It MUST be exactly 3 words.`;
 
       const thumbnailResponse = await openai.chat.completions.create({
         model: 'gpt-4-turbo-preview',
         messages: [
           {
             role: 'system',
-            content: 'You are an expert at creating short, catchy YouTube thumbnail titles that grab attention. Always return exactly 3 words when possible. Use ALL CAPS and power words, but NO emojis.'
+            content: 'You are an expert at creating short, catchy YouTube thumbnail titles that grab attention. You MUST always return exactly 3 words - no more, no less. Use ALL CAPS and power words, but NO emojis.'
           },
           {
             role: 'user',
@@ -946,23 +968,42 @@ Return ONLY the 3-word thumbnail title in ALL CAPS, nothing else. No quotes, no 
         // Convert to ALL CAPS for maximum impact (but preserve numbers and punctuation)
         thumbnailTitle = thumbnailTitle.replace(/[a-z]/g, (match: string) => match.toUpperCase());
         
-        // Ensure it's 3 words max
+        // Enforce exactly 3 words
         const words = thumbnailTitle.split(/\s+/).filter((w: string) => w.length > 0);
         if (words.length > 3) {
+          // Take first 3 words if more than 3
           thumbnailTitle = words.slice(0, 3).join(' ');
+        } else if (words.length < 3) {
+          // If less than 3 words, pad with power words or take from topic
+          const topicWords = topicForThumbnail.split(/\s+/).filter((w: string) => w.length > 0);
+          if (topicWords.length >= 3) {
+            thumbnailTitle = topicWords.slice(0, 3).join(' ').toUpperCase();
+          } else {
+            // Last resort: pad with power words
+            const powerWords = ['EXPLAINED', 'REVEALED', 'SECRETS', 'BREAKING', 'SHOCKING'];
+            while (words.length < 3) {
+              words.push(powerWords[words.length % powerWords.length]);
+            }
+            thumbnailTitle = words.slice(0, 3).join(' ');
+          }
         }
         
-        console.log(`✅ Generated deep dive thumbnail title: "${thumbnailTitle}"`);
+        console.log(`✅ Generated deep dive thumbnail title: "${thumbnailTitle}" (${thumbnailTitle.split(/\s+/).length} words)`);
       }
     } catch (error) {
       console.warn('Failed to generate AI thumbnail title, using fallback:', error);
       // Fallback: Create a simple 3-word title from the topic
       const topicWords = topicForThumbnail.split(/\s+/).filter((w: string) => w.length > 0);
-      if (topicWords.length <= 3) {
-        thumbnailTitle = topicWords.join(' ').toUpperCase();
-      } else {
-        // Take first 3 words and make it ALL CAPS
+      if (topicWords.length >= 3) {
         thumbnailTitle = topicWords.slice(0, 3).join(' ').toUpperCase();
+      } else {
+        // Pad to 3 words if needed
+        const powerWords = ['EXPLAINED', 'REVEALED', 'SECRETS'];
+        const words = [...topicWords];
+        while (words.length < 3) {
+          words.push(powerWords[words.length % powerWords.length]);
+        }
+        thumbnailTitle = words.slice(0, 3).join(' ');
       }
     }
 

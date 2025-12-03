@@ -1920,17 +1920,25 @@ export async function generateThumbnail(
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       
-      // Use thumbnail title (4 words max, AI-generated)
+      // Use thumbnail title (exactly 3 words, AI-generated)
       // For deep dive videos, use the specially generated thumbnail title
       let titleToUse = script.thumbnailTitle || script.title;
       
       // Remove all unicode characters (emojis, symbols) from title
       titleToUse = removeUnicodeFromTitle(titleToUse);
       
-      // Ensure it's 4 words max (for deep dive, this should already be 4 words from AI generation)
+      // Enforce exactly 3 words (should already be 3 words from AI generation)
       const words = titleToUse.split(/\s+/).filter(w => w.length > 0);
-      if (words.length > 4) {
-        titleToUse = words.slice(0, 4).join(' ');
+      if (words.length > 3) {
+        titleToUse = words.slice(0, 3).join(' ');
+      } else if (words.length < 3) {
+        // Pad to 3 words if needed
+        const powerWords = ['BREAKING', 'SHOCKING', 'INSANE'];
+        const paddedWords = [...words];
+        while (paddedWords.length < 3) {
+          paddedWords.push(powerWords[paddedWords.length % powerWords.length]);
+        }
+        titleToUse = paddedWords.slice(0, 3).join(' ');
       }
       
       // Use same formatting for both deep dive and news videos (no special title case conversion)
@@ -2262,17 +2270,25 @@ export async function generateThumbnail(
           .replace(/'/g, '&apos;');
       };
       
-      // Use thumbnail title (4 words max, AI-generated)
+      // Use thumbnail title (exactly 3 words, AI-generated)
       // For deep dive videos, use the specially generated thumbnail title
       let titleToUse = script.thumbnailTitle || script.title;
       
       // Remove all unicode characters (emojis, symbols) from title
       titleToUse = removeUnicodeFromTitle(titleToUse);
       
-      // Ensure it's 4 words max (for deep dive, this should already be 4 words from AI generation)
+      // Enforce exactly 3 words (should already be 3 words from AI generation)
       const words = titleToUse.split(/\s+/).filter(w => w.length > 0);
-      if (words.length > 4) {
-        titleToUse = words.slice(0, 4).join(' ');
+      if (words.length > 3) {
+        titleToUse = words.slice(0, 3).join(' ');
+      } else if (words.length < 3) {
+        // Pad to 3 words if needed
+        const powerWords = ['BREAKING', 'SHOCKING', 'INSANE'];
+        const paddedWords = [...words];
+        while (paddedWords.length < 3) {
+          paddedWords.push(powerWords[paddedWords.length % powerWords.length]);
+        }
+        titleToUse = paddedWords.slice(0, 3).join(' ');
       }
       
       // Use same formatting for both deep dive and news videos (no special title case conversion)
