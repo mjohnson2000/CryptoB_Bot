@@ -64,8 +64,8 @@ export async function generateBlogPost(
       nftSection = `\n\n### NFT Market Update\n\n**Trending Collections:**\n${nftCollections.join('\n')}`;
     }
 
-    // Create YouTube embed code
-    const videoEmbedCode = `<iframe width="560" height="315" src="https://www.youtube.com/embed/${videoId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+    // Create YouTube embed code (using React-compatible attributes)
+    const videoEmbedCode = `<iframe width="560" height="315" src="https://www.youtube.com/embed/${videoId}" style="border: 0;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>`;
 
     const prompt = `You are a professional crypto news blogger creating a high-quality, SEO-optimized blog post based on a YouTube video script.
 
