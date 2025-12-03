@@ -28,6 +28,22 @@
   box-sizing: border-box;
 }
 
+/* Ensure all interactive elements are clickable */
+button,
+a,
+input,
+textarea,
+select {
+  pointer-events: auto !important;
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',

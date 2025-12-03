@@ -369,19 +369,37 @@ function Admin() {
         <div className="tabs">
           <button
             className={`tab ${activeTab === 'news' ? 'active' : ''}`}
-            onClick={() => setActiveTab('news')}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              console.log('News tab clicked');
+              setActiveTab('news');
+            }}
+            type="button"
           >
             📰 News Updates
           </button>
           <button
             className={`tab ${activeTab === 'deepdive' ? 'active' : ''}`}
-            onClick={() => setActiveTab('deepdive')}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              console.log('Deep dive tab clicked');
+              setActiveTab('deepdive');
+            }}
+            type="button"
           >
             🎯 Deep Dive Videos
           </button>
           <button
             className={`tab ${activeTab === 'blog' ? 'active' : ''}`}
-            onClick={() => setActiveTab('blog')}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              console.log('Blog tab clicked');
+              setActiveTab('blog');
+            }}
+            type="button"
           >
             📝 Blog Management
           </button>
@@ -450,7 +468,13 @@ function Admin() {
 
                   {!automationState?.isRunning ? (
                     <button
-                      onClick={handleStartAutomation}
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('Start automation clicked');
+                        handleStartAutomation();
+                      }}
                       disabled={automationLoading}
                       className="start-automation-button"
                     >
@@ -468,7 +492,13 @@ function Admin() {
                     </button>
                   ) : (
                     <button
-                      onClick={handleStopAutomation}
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('Stop automation clicked');
+                        handleStopAutomation();
+                      }}
                       disabled={automationLoading}
                       className="stop-automation-button"
                     >
@@ -500,7 +530,13 @@ function Admin() {
               </div>
 
               <button
-                onClick={handleCreateVideo}
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  console.log('Create video clicked');
+                  handleCreateVideo();
+                }}
                 disabled={loading || uploading}
                 className="create-button"
               >

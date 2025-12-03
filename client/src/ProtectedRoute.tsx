@@ -58,7 +58,10 @@ function ProtectedRoute({ children }: ProtectedRouteProps) {
         alignItems: 'center',
         justifyContent: 'center',
         background: 'linear-gradient(135deg, var(--degen-bg-dark) 0%, #1a1a2e 100%)',
-        color: '#ffffff'
+        color: '#ffffff',
+        pointerEvents: 'auto',
+        position: 'relative',
+        zIndex: 1
       }}>
         <div>Loading...</div>
       </div>
