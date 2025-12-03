@@ -587,24 +587,37 @@ function Admin() {
                   {progress.status === 'ready' && progress.result?.readyForApproval && (
                     <div className="preview-section">
                       <h3>Preview</h3>
-                      {progress.result.videoPath && (
+                      {getVideoPreviewUrl(progress.result.videoPath) && (
                         <div className="preview-item">
                           <h4>Video:</h4>
-                          <video
-                            src={getVideoPreviewUrl(progress.result.videoPath) || undefined}
-                            controls
-                            style={{ maxWidth: '100%', borderRadius: '8px' }}
-                          />
+                          <div className="video-preview">
+                            <video
+                              src={getVideoPreviewUrl(progress.result.videoPath)!}
+                              controls
+                              className="preview-video"
+                            >
+                              Your browser does not support the video tag.
+                            </video>
+                          </div>
                         </div>
                       )}
-                      {progress.result.thumbnailPath && (
+                      {getThumbnailPreviewUrl(progress.result.thumbnailPath) && (
                         <div className="preview-item">
                           <h4>Thumbnail:</h4>
-                          <img
-                            src={getThumbnailPreviewUrl(progress.result.thumbnailPath) || undefined}
-                            alt="Thumbnail"
-                            style={{ maxWidth: '100%', borderRadius: '8px' }}
-                          />
+                          <div className="thumbnail-preview">
+                            <img
+                              src={getThumbnailPreviewUrl(progress.result.thumbnailPath)!}
+                              alt="Thumbnail"
+                              className="thumbnail-image"
+                              onError={() => {
+                                console.error('❌ Thumbnail image failed to load:', getThumbnailPreviewUrl(progress.result?.thumbnailPath));
+                                console.error('Thumbnail path:', progress.result?.thumbnailPath);
+                              }}
+                              onLoad={() => {
+                                console.log('✅ Thumbnail loaded successfully:', getThumbnailPreviewUrl(progress.result?.thumbnailPath));
+                              }}
+                            />
+                          </div>
                         </div>
                       )}
                       {progress.result.script && (
