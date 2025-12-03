@@ -10,21 +10,17 @@ import './App.css';
 const EST_TIMEZONE = 'America/New_York';
 
 // Convert EST datetime-local string to UTC ISO string
+// The input is treated as EST time, regardless of browser timezone
 function estToUTC(estDateTime: string): string {
   const [datePart, timePart] = estDateTime.split('T');
   const [year, month, day] = datePart.split('-').map(Number);
   const [hours, minutes] = timePart.split(':').map(Number);
   
-  const dateString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+  // Create a UTC date using the input components (treating them as UTC for now)
+  const tempUTC = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0));
   
-  const testDate = new Date(dateString);
-  const estOffsetMs = getESTOffsetMs(testDate);
-  const utcDate = new Date(testDate.getTime() - estOffsetMs);
-  return utcDate.toISOString();
-}
-
-function getESTOffsetMs(date: Date): number {
-  const estTimeString = date.toLocaleString('en-US', { 
+  // Get what this UTC time displays as in EST
+  const estDisplay = tempUTC.toLocaleString('en-US', {
     timeZone: EST_TIMEZONE,
     year: 'numeric',
     month: '2-digit',
@@ -34,11 +30,23 @@ function getESTOffsetMs(date: Date): number {
     second: '2-digit',
     hour12: false
   });
-  const utcString = date.toLocaleString('en-US', { timeZone: 'UTC' });
-  const estDate = new Date(estTimeString);
-  const utcDate = new Date(utcString);
-  return estDate.getTime() - utcDate.getTime();
+  
+  // Parse the EST display
+  const [estDatePart, estTimePart] = estDisplay.split(', ');
+  const [estMonth, estDay, estYear] = estDatePart.split('/').map(Number);
+  const [estHours, estMinutes] = estTimePart.split(':').map(Number);
+  
+  // Calculate difference: what we want vs what tempUTC shows in EST
+  // Create date objects in the same timezone for comparison
+  const wantedEST = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0));
+  const actualEST = new Date(Date.UTC(estYear, estMonth - 1, estDay, estHours, estMinutes, 0));
+  const diffMs = wantedEST.getTime() - actualEST.getTime();
+  
+  // Adjust UTC by the difference to get the correct UTC time
+  const finalUTC = new Date(tempUTC.getTime() + diffMs);
+  return finalUTC.toISOString();
 }
+
 
 function formatEST(dateISO: string): string {
   return new Date(dateISO).toLocaleString('en-US', {
