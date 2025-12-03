@@ -7,6 +7,7 @@ import { VideoScript } from './aiService.js';
 import { topicHistory } from './topicHistory.js';
 import { getPriceMovements } from './priceData.js';
 import { getNFTUpdates } from './nftData.js';
+import { generateBlogPost, saveBlogPostLocally } from './blogService.js';
 import path from 'path';
 
 export interface VideoCreationResult {
@@ -17,12 +18,14 @@ export interface VideoCreationResult {
   videoPath?: string;
   thumbnailPath?: string;
   readyForApproval?: boolean;
+  blogUrl?: string;
+  blogId?: string;
   error?: string;
 }
 
 export interface JobProgress {
   jobId: string;
-  status: 'pending' | 'scraping' | 'analyzing' | 'fetching_prices' | 'fetching_nfts' | 'generating_script' | 'creating_video' | 'updating_timestamps' | 'creating_thumbnail' | 'ready' | 'uploading' | 'completed' | 'error';
+  status: 'pending' | 'scraping' | 'analyzing' | 'fetching_prices' | 'fetching_nfts' | 'generating_script' | 'creating_video' | 'updating_timestamps' | 'creating_thumbnail' | 'ready' | 'uploading' | 'generating_blog' | 'posting_blog' | 'completed' | 'error';
   progress: number; // 0-100
   message: string;
   result?: VideoCreationResult;
@@ -150,9 +153,10 @@ export async function approveAndUpload(jobId: string): Promise<VideoCreationResu
     const uploadResult = await uploadToYouTube(
       jobData.result.videoPath,
       jobData.result.thumbnailPath,
-      jobData.result.script
+      jobData.result.script,
+      false // isDeepDive (news videos)
     );
-    updateProgress(jobId, 'completed', 100, `Upload successful: ${uploadResult.url}`);
+    updateProgress(jobId, 'uploading', 90, `Upload successful: ${uploadResult.url}`);
 
     const result: VideoCreationResult = {
       success: true,
@@ -162,6 +166,47 @@ export async function approveAndUpload(jobId: string): Promise<VideoCreationResu
       videoPath: jobData.result.videoPath,
       thumbnailPath: jobData.result.thumbnailPath
     };
+
+    // Generate and save blog post
+    if (uploadResult.videoId) {
+      try {
+        updateProgress(jobId, 'generating_blog', 92, 'Generating blog post...');
+        
+        // Get thumbnail URL (YouTube thumbnail)
+        const thumbnailUrl = `https://img.youtube.com/vi/${uploadResult.videoId}/maxresdefault.jpg`;
+        
+        const blogPost = await generateBlogPost(
+          jobData.result.script,
+          uploadResult.url,
+          uploadResult.videoId,
+          thumbnailUrl
+        );
+        updateProgress(jobId, 'generating_blog', 95, 'Blog post generated');
+
+        updateProgress(jobId, 'posting_blog', 97, 'Saving blog post...');
+        const blogResult = await saveBlogPostLocally(
+          blogPost,
+          uploadResult.videoId,
+          uploadResult.url,
+          uploadResult.url
+        );
+
+        if (blogResult.success) {
+          result.blogUrl = blogResult.blogUrl;
+          result.blogId = blogResult.blogId;
+          updateProgress(jobId, 'posting_blog', 99, `Blog saved: ${blogResult.blogUrl}`);
+        } else {
+          console.warn(`[${jobId}] Blog saving failed: ${blogResult.error}`);
+          updateProgress(jobId, 'posting_blog', 99, `Blog generation succeeded but saving failed: ${blogResult.error}`);
+        }
+      } catch (error) {
+        console.error(`[${jobId}] Error creating blog post:`, error);
+        // Don't fail the entire upload if blog creation fails
+        updateProgress(jobId, 'posting_blog', 99, `Blog creation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+
+    updateProgress(jobId, 'completed', 100, `Upload successful: ${uploadResult.url}${result.blogUrl ? ` | Blog: ${result.blogUrl}` : ''}`);
 
     const finalProgress = jobStore.get(jobId);
     if (finalProgress) {

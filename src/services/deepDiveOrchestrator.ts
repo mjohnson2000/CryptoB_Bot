@@ -4,6 +4,8 @@ import { uploadToYouTube } from './youtubeUploader.js';
 import { getMostRequestedTopic, TopicRequest } from './youtubeComments.js';
 import { updateDeepDiveDescriptionWithTimestamps } from './timestampUpdater.js';
 import { deepDiveTopicHistory } from './deepDiveTopicHistory.js';
+import { validateTopic } from './topicValidation.js';
+import { generateBlogPost, saveBlogPostLocally } from './blogService.js';
 import path from 'path';
 
 export interface DeepDiveResult {
@@ -15,12 +17,14 @@ export interface DeepDiveResult {
   thumbnailPath?: string;
   readyForApproval?: boolean;
   topic?: string;
+  blogUrl?: string;
+  blogId?: string;
   error?: string;
 }
 
 export interface DeepDiveJobProgress {
   jobId: string;
-  status: 'pending' | 'fetching_comments' | 'analyzing_topics' | 'generating_script' | 'creating_video' | 'creating_thumbnail' | 'ready' | 'uploading' | 'completed' | 'error';
+  status: 'pending' | 'fetching_comments' | 'analyzing_topics' | 'generating_script' | 'creating_video' | 'creating_thumbnail' | 'ready' | 'uploading' | 'generating_blog' | 'posting_blog' | 'completed' | 'error';
   progress: number; // 0-100
   message: string;
   result?: DeepDiveResult;
@@ -75,6 +79,19 @@ export async function createDeepDiveVideo(jobId: string, topic?: string): Promis
         };
       }
       
+      // Validate topic quality
+      const topicValidation = validateTopic(topicName, selectedTopic.count, 3);
+      if (!topicValidation.isValid) {
+        updateProgress(jobId, 'error', 0, `Topic validation failed: ${topicValidation.errors.join('; ')}`);
+        return {
+          success: false,
+          error: `Topic validation failed: ${topicValidation.errors.join('; ')}`
+        };
+      }
+      if (topicValidation.warnings.length > 0) {
+        console.warn(`⚠️ Topic validation warnings: ${topicValidation.warnings.join('; ')}`);
+      }
+      
       // Check if this came from comments or news fallback
       if (selectedTopic.count > 0) {
         updateProgress(jobId, 'analyzing_topics', 20, `Most requested topic: "${topicName}" (${selectedTopic.count} requests from comments)`);
@@ -90,15 +107,34 @@ export async function createDeepDiveVideo(jobId: string, topic?: string): Promis
           error: `Topic "${topicName}" has already been covered`
         };
       }
+      
+      // Validate topic quality (use count of 1 for manual topics)
+      const topicValidation = validateTopic(topicName, 1, 1); // Lower threshold for manual topics
+      if (!topicValidation.isValid) {
+        updateProgress(jobId, 'error', 0, `Topic validation failed: ${topicValidation.errors.join('; ')}`);
+        return {
+          success: false,
+          error: `Topic validation failed: ${topicValidation.errors.join('; ')}`
+        };
+      }
+      if (topicValidation.warnings.length > 0) {
+        console.warn(`⚠️ Topic validation warnings: ${topicValidation.warnings.join('; ')}`);
+      }
+      
       updateProgress(jobId, 'analyzing_topics', 20, `Creating deep dive on: "${topicName}"`);
     }
 
-    // Step 2: Generate deep dive script (5 minutes)
-    updateProgress(jobId, 'generating_script', 30, 'Generating deep dive script...');
+    // Step 2: Generate deep dive script (5 minutes) with research and validation
+    updateProgress(jobId, 'generating_script', 30, 'Researching topic and generating deep dive script...');
     if (!topicName) {
       throw new Error('Topic name is required');
     }
-    const script = await generateDeepDiveScript(topicName, selectedTopic?.comments || []);
+    
+    // Get questions from selected topic
+    const questions = selectedTopic?.questions || [];
+    const comments = selectedTopic?.comments || [];
+    
+    const script = await generateDeepDiveScript(topicName, comments, questions);
     updateProgress(jobId, 'generating_script', 50, `Script generated: "${script.title}"`);
 
     // Step 3: Generate video (5 minutes)
@@ -190,7 +226,8 @@ export async function approveAndUploadDeepDive(jobId: string): Promise<DeepDiveR
     const uploadResult = await uploadToYouTube(
       result.videoPath,
       result.thumbnailPath,
-      result.script
+      result.script,
+      true // isDeepDive
     );
 
     const finalResult: DeepDiveResult = {
@@ -200,7 +237,48 @@ export async function approveAndUploadDeepDive(jobId: string): Promise<DeepDiveR
       readyForApproval: false
     };
 
-    updateProgress(jobId, 'completed', 100, `Upload successful: ${uploadResult.url}`);
+    updateProgress(jobId, 'uploading', 90, `Upload successful: ${uploadResult.url}`);
+
+    // Generate and save blog post
+    if (uploadResult.videoId) {
+      try {
+        updateProgress(jobId, 'generating_blog', 92, 'Generating blog post...');
+        
+        // Get thumbnail URL (YouTube thumbnail)
+        const thumbnailUrl = `https://img.youtube.com/vi/${uploadResult.videoId}/maxresdefault.jpg`;
+        
+        const blogPost = await generateBlogPost(
+          result.script,
+          uploadResult.url,
+          uploadResult.videoId,
+          thumbnailUrl
+        );
+        updateProgress(jobId, 'generating_blog', 95, 'Blog post generated');
+
+        updateProgress(jobId, 'posting_blog', 97, 'Saving blog post...');
+        const blogResult = await saveBlogPostLocally(
+          blogPost,
+          uploadResult.videoId,
+          uploadResult.url,
+          uploadResult.url
+        );
+
+        if (blogResult.success) {
+          finalResult.blogUrl = blogResult.blogUrl;
+          finalResult.blogId = blogResult.blogId;
+          updateProgress(jobId, 'posting_blog', 99, `Blog saved: ${blogResult.blogUrl}`);
+        } else {
+          console.warn(`[${jobId}] Blog saving failed: ${blogResult.error}`);
+          updateProgress(jobId, 'posting_blog', 99, `Blog generation succeeded but saving failed: ${blogResult.error}`);
+        }
+      } catch (error) {
+        console.error(`[${jobId}] Error creating blog post:`, error);
+        // Don't fail the entire upload if blog creation fails
+        updateProgress(jobId, 'posting_blog', 99, `Blog creation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+
+    updateProgress(jobId, 'completed', 100, `Upload successful: ${uploadResult.url}${finalResult.blogUrl ? ` | Blog: ${finalResult.blogUrl}` : ''}`);
 
     // Record this topic in deep dive history to prevent duplicates
     if (result.topic) {

@@ -261,6 +261,7 @@ Requirements:
 - Use: Crypto terminology (moon, diamond hands, FUD, alpha, etc.)
 - IMPORTANT: Mention in the intro and/or outro that this news is from the last 6 hours, and that new videos are posted every 6 hours with the latest crypto updates
 - CRITICAL: If covering topics that were mentioned in recent videos, use a DIFFERENT angle, focus on UPDATES, or provide DEEPER analysis. Never repeat the same narrative.
+- NUMERIC FORMAT: When mentioning price changes or percentages, ALWAYS use the exact numeric format with decimal points and percentage signs. For example, say "5.2%" not "five point two percent" or "five percent". Use formats like "+5.2%", "-3.1%", "7.3%" etc.
 
 Also generate:
 1. A catchy YouTube title (under 60 characters, clickbait but accurate)
@@ -316,28 +317,28 @@ Format your response as JSON:
       thumbnailTitle = thumbnailTitle.trim();
     }
     
-    // Always use AI to create an optimal 4-word max thumbnail title
+    // Always use AI to create an optimal 3-word max thumbnail title
     try {
       const thumbnailPrompt = `Create a SHORT, CATCHY thumbnail title for a YouTube crypto news video. This will be displayed on a thumbnail image, so it needs to be:
-- EXACTLY 4 words maximum (no more, no less if possible)
+- EXACTLY 3 words maximum (no more, no less if possible)
 - Eye-catching and clickable
 - Use power words (BREAKING, SHOCKING, INSANE, MOONING, CRASH, SURGE, etc.)
 - Keep the main message but make it punchy and attention-grabbing
 - Focus on the most impactful news element
-- Include relevant emojis when appropriate (₿ for Bitcoin, 🚀 for pumps/mooning, 💎 for diamond hands/valuable, 📈 for gains, 📉 for drops, ⚡ for breaking news, 🔥 for hot trends)
+- NO emojis (keep it text-only, but still exciting)
 - Use ALL CAPS for maximum visual impact
 - Add exclamation marks for excitement when appropriate
 
 Original title: "${thumbnailTitle}"
 
-Return ONLY the 4-word thumbnail title with emojis, nothing else. No quotes, no explanations. Make it ALL CAPS with emojis.`;
+Return ONLY the 3-word thumbnail title in ALL CAPS, nothing else. No quotes, no explanations. Make it exciting and clickable but NO emojis.`;
 
         const thumbnailResponse = await openai.chat.completions.create({
           model: 'gpt-4-turbo-preview',
           messages: [
             {
               role: 'system',
-              content: 'You are an expert at creating short, catchy YouTube thumbnail titles that grab attention. Always return exactly 4 words when possible.'
+              content: 'You are an expert at creating short, catchy YouTube thumbnail titles that grab attention. Always return exactly 3 words when possible. Use ALL CAPS and power words, but NO emojis.'
             },
             {
               role: 'user',
@@ -358,47 +359,44 @@ Return ONLY the 4-word thumbnail title with emojis, nothing else. No quotes, no 
             shortTitle = shortTitle.trim();
           }
           
-          // Convert to ALL CAPS for maximum impact (but preserve emojis and punctuation)
-          // Uppercase all letters while preserving emojis, numbers, and punctuation
-          shortTitle = shortTitle.replace(/[a-z]/g, (match) => match.toUpperCase());
+          // Remove any emojis that might have been included
+          shortTitle = shortTitle
+            .replace(/[\u{1F300}-\u{1F9FF}]/gu, '') // Emoticons & Symbols
+            .replace(/[\u{2600}-\u{26FF}]/gu, '') // Miscellaneous Symbols
+            .replace(/[\u{2700}-\u{27BF}]/gu, '') // Dingbats
+            .replace(/[\u{1F600}-\u{1F64F}]/gu, '') // Emoticons
+            .replace(/[\u{1F680}-\u{1F6FF}]/gu, '') // Transport & Map
+            .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '') // Flags
+            .replace(/[\u{1F900}-\u{1F9FF}]/gu, '') // Supplemental Symbols
+            .replace(/[\u{1FA00}-\u{1FA6F}]/gu, '') // Chess Symbols
+            .replace(/[\u{1FA70}-\u{1FAFF}]/gu, '') // Symbols and Pictographs Extended-A
+            .replace(/[\u{2190}-\u{21FF}]/gu, '') // Arrows
+            .replace(/[\u{2300}-\u{23FF}]/gu, '') // Miscellaneous Technical
+            .replace(/[\u{2B50}-\u{2B55}]/gu, '') // Miscellaneous Symbols and Arrows
+            .replace(/[\u{3030}-\u{303F}]/gu, '') // CJK Symbols and Punctuation
+            .replace(/[\u{3297}-\u{3299}]/gu, '') // CJK Compatibility
+            .replace(/[^\x00-\x7F]/g, '') // Remove any remaining non-ASCII characters
+            .replace(/\s+/g, ' ') // Clean up multiple spaces
+            .trim();
           
-          // Ensure it's 4 words max - count words (emojis don't count as words)
-          // Comprehensive emoji regex: covers most emoji ranges including symbols
-          const emojiRegex = /[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|₿|🚀|💎|📈|📉|⚡|🔥/u;
+          // Convert to ALL CAPS for maximum impact (but preserve numbers and punctuation)
+          shortTitle = shortTitle.replace(/[a-z]/g, (match: string) => match.toUpperCase());
           
-          // Split by spaces and filter out empty strings, then count actual words (not emojis)
-          const parts = shortTitle.split(/\s+/).filter(p => p.length > 0);
-          const words = parts.filter(p => !emojiRegex.test(p));
-          
-          if (words.length > 4) {
-            // Keep emojis but limit to 4 words
-            let wordCount = 0;
-            const limitedParts: string[] = [];
-            for (const part of parts) {
-              const isEmoji = emojiRegex.test(part);
-              if (!isEmoji) {
-                wordCount++;
-                if (wordCount > 4) break;
-              }
-              limitedParts.push(part);
-            }
-            shortTitle = limitedParts.join(' ');
+          // Ensure it's 3 words max
+          const words = shortTitle.split(/\s+/).filter((w: string) => w.length > 0);
+          if (words.length > 3) {
+            thumbnailTitle = words.slice(0, 3).join(' ');
+          } else {
+            thumbnailTitle = shortTitle;
           }
-          
-          // Ensure at least one exclamation mark for excitement (if not already present)
-          if (!shortTitle.includes('!') && !shortTitle.includes('?')) {
-            shortTitle = shortTitle + '!';
-          }
-          
-          thumbnailTitle = shortTitle;
-          console.log(`✅ Generated 4-word thumbnail title: "${thumbnailTitle}"`);
+          console.log(`✅ Generated 3-word thumbnail title: "${thumbnailTitle}"`);
         }
       } catch (error) {
         console.warn('Failed to generate thumbnail title, using fallback:', error);
-        // Fallback: take first 4 words of original title
+        // Fallback: take first 3 words of original title
         const words = thumbnailTitle.split(/\s+/).filter((w: string) => w.length > 0);
-        if (words.length > 4) {
-          thumbnailTitle = words.slice(0, 4).join(' ');
+        if (words.length > 3) {
+          thumbnailTitle = words.slice(0, 3).join(' ');
         }
       }
 
@@ -424,7 +422,7 @@ Return ONLY the 4-word thumbnail title with emojis, nothing else. No quotes, no 
 
     return {
       title: parsed.title || 'Latest Crypto News',
-      thumbnailTitle: thumbnailTitle, // Shorter version for thumbnail (4 words max)
+      thumbnailTitle: thumbnailTitle, // Shorter version for thumbnail (3 words max)
       description: finalDescription,
       tags: parsed.tags || [],
       script: parsed.script || '',
@@ -472,9 +470,9 @@ Generate a thumbnail design that is:
 
 Return a JSON object with this exact structure:
 {
-  "backgroundColor": "#hexcolor (dark, professional background)",
-  "accentColor": "#hexcolor (bright, attention-grabbing accent - Bitcoin orange #F7931A or similar)",
-  "textColor": "#hexcolor (high contrast text color, usually white or bright)",
+  "backgroundColor": "#hexcolor (use dark degen palette: #0a0a0f or similar dark colors)",
+  "accentColor": "#hexcolor (use Bitcoin orange #F7931A for news videos, or vibrant colors like #00FF88 for deep dives)",
+  "textColor": "#hexcolor (high contrast text color, usually white #FFFFFF)",
   "layout": "centered|split|overlay (choose best for this content)",
   "visualElements": ["element1", "element2"] (suggest 2-3 visual elements like "gradient", "glow", "grid", "particles", "geometric shapes"),
   "emphasis": "bold|minimal|dynamic (visual style)",
@@ -600,50 +598,194 @@ That's all for now degens. Keep those diamond hands strong, and remember - we dr
 
 /**
  * Generate a deep dive video script for a specific topic (5 minutes)
+ * Uses two-phase generation: Research & Outline, then Script Generation
  */
 export async function generateDeepDiveScript(
   topic: string,
-  requestComments: Array<{ text: string; author: string }> = []
+  requestComments: Array<{ text: string; author: string }> = [],
+  questions: string[] = []
 ): Promise<VideoScript> {
   try {
     const openai = getOpenAIClient();
 
-    // Build context from comments
+    // Step 1: Research the topic (get recent news, price data, key points)
+    console.log(`🔍 Phase 1: Researching topic "${topic}"...`);
+    const { researchTopic } = await import('./topicResearch.js');
+    const research = await researchTopic(topic);
+    
+    // Build research context
+    let researchContext = '';
+    if (research.recentArticles.length > 0) {
+      const articlesText = research.recentArticles
+        .slice(0, 5)
+        .map(a => `- ${a.title} (${a.source}): ${a.summary || ''}`)
+        .join('\n');
+      researchContext += `\n\n📰 RECENT NEWS & DEVELOPMENTS (Last 48 hours):\n${articlesText}`;
+    }
+    
+    if (research.priceData) {
+      researchContext += `\n\n💰 CURRENT PRICE DATA:\n- ${research.priceData.name} (${research.priceData.symbol}): $${research.priceData.price.toFixed(2)} (${research.priceData.change24h > 0 ? '+' : ''}${research.priceData.change24h.toFixed(2)}% in 24h)`;
+    }
+    
+    if (research.keyPoints.length > 0) {
+      researchContext += `\n\n📝 KEY POINTS:\n${research.keyPoints.map(p => `- ${p}`).join('\n')}`;
+    }
+    
+    if (research.relatedTopics.length > 0) {
+      researchContext += `\n\n🔗 RELATED TOPICS: ${research.relatedTopics.join(', ')}`;
+    }
+
+    // Build context from comments (use up to 50 comments)
     let commentsContext = '';
     if (requestComments.length > 0) {
       const commentsText = requestComments
-        .slice(0, 10)
+        .slice(0, 50) // Increased from 10 to 50
         .map(c => `- "${c.text}" (by ${c.author})`)
         .join('\n');
-      commentsContext = `\n\nViewer requests from comments:\n${commentsText}\n\nThese comments show what viewers want to learn more about regarding "${topic}".`;
+      commentsContext = `\n\n💬 VIEWER REQUESTS FROM COMMENTS (${requestComments.length} comments):\n${commentsText}`;
+    }
+    
+    // Build questions context
+    let questionsContext = '';
+    if (questions.length > 0) {
+      questionsContext = `\n\n❓ SPECIFIC QUESTIONS VIEWERS ARE ASKING:\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}\n\nCRITICAL: Your script MUST answer these specific questions. Address each one clearly.`;
     }
 
-    const prompt = `You are "Crypto B", a charismatic crypto influencer creating a DEEP DIVE YouTube video. This video is based on viewer requests from comments asking for more information about "${topic}".
+    // PHASE 1: Generate detailed outline
+    console.log(`📋 Phase 1: Generating detailed outline for "${topic}"...`);
+    const outlinePrompt = `You are "Crypto B", a charismatic crypto influencer creating a DEEP DIVE YouTube video. This video is based on viewer requests from comments asking for more information about "${topic}".
 
-${commentsContext}
+${researchContext}${commentsContext}${questionsContext}
 
-Create an engaging 5-minute deep dive video script that thoroughly explains "${topic}".
+PHASE 1: RESEARCH & OUTLINE GENERATION
+
+First, research and understand "${topic}" thoroughly using the provided context above. Then create a DETAILED OUTLINE for a 5-minute deep dive video.
+
+Requirements for the outline:
+- Target audience: Young crypto degens (18-30, meme-loving, risk-tolerant)
+- Must cover ALL aspects of the topic thoroughly
+- Must answer ALL viewer questions (if provided)
+- Must include recent developments and current state
+- Must have enough depth for 5 minutes of content
+
+Outline structure:
+1. Hook intro (30 seconds)
+   - Key points to cover
+   - How to mention viewer requests
+2. Overview/Context (45 seconds)
+   - What is this topic?
+   - Why does it matter?
+   - Key background information
+3. Deep Analysis (3.5-4 minutes) - MAIN CONTENT
+   - Key concepts and how they work (detailed breakdown)
+   - Current state and recent developments (use the research provided)
+   - Why it's important for crypto
+   - Potential impact or opportunities
+   - Technical details explained simply
+   - Real examples and use cases
+   - Address each viewer question specifically
+4. Real-world examples or use cases (30 seconds)
+   - Specific examples
+   - Practical applications
+5. Outro (15 seconds)
+   - Key takeaways
+   - Encourage more requests
+
+QUALITY CHECKLIST - Ensure the outline covers:
+✅ All key concepts of the topic
+✅ Recent developments (from research)
+✅ Answers to viewer questions
+✅ Technical details (explained simply)
+✅ Real-world examples
+✅ Why it matters for crypto
+✅ Potential opportunities/impact
+
+Format your response as JSON:
+{
+  "outline": {
+    "intro": ["point 1", "point 2", ...],
+    "overview": ["point 1", "point 2", ...],
+    "deepAnalysis": ["point 1", "point 2", ...],
+    "examples": ["point 1", "point 2", ...],
+    "outro": ["point 1", "point 2", ...]
+  },
+  "keyPoints": ["main point 1", "main point 2", ...],
+  "questionsToAnswer": ["question 1", "question 2", ...]
+}`;
+
+    const outlineResponse = await openai.chat.completions.create({
+      model: 'gpt-4-turbo-preview',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are Crypto B, a popular crypto YouTuber known for creating educational deep dive content based on viewer requests. You excel at researching topics and creating comprehensive outlines.'
+        },
+        {
+          role: 'user',
+          content: outlinePrompt
+        }
+      ],
+      temperature: 0.7,
+      response_format: { type: 'json_object' }
+    });
+
+    const outlineContent = outlineResponse.choices[0]?.message?.content;
+    if (!outlineContent) {
+      throw new Error('No outline response from OpenAI');
+    }
+
+    const outlineParsed = JSON.parse(outlineContent);
+    const outline = outlineParsed.outline || {};
+    const keyPoints = outlineParsed.keyPoints || [];
+    const questionsToAnswer = outlineParsed.questionsToAnswer || questions;
+
+    console.log(`✅ Outline generated with ${Object.keys(outline).length} sections`);
+
+    // PHASE 2: Generate script from outline
+    console.log(`✍️ Phase 2: Generating script from outline...`);
+    const scriptPrompt = `You are "Crypto B", a charismatic crypto influencer creating a DEEP DIVE YouTube video. This video is based on viewer requests from comments asking for more information about "${topic}".
+
+${researchContext}${commentsContext}${questionsContext}
+
+PHASE 2: SCRIPT GENERATION
+
+You have already created a detailed outline. Now create the FULL SCRIPT based on this outline:
+
+OUTLINE:
+${JSON.stringify(outline, null, 2)}
+
+KEY POINTS TO COVER:
+${keyPoints.map((p: string, i: number) => `${i + 1}. ${p}`).join('\n')}
+
+QUESTIONS TO ANSWER:
+${questionsToAnswer.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}
+
+Create an engaging 5-minute deep dive video script that:
+- Follows the outline structure exactly
+- Covers ALL key points listed above
+- Answers ALL questions listed above
+- Uses the research context provided (recent news, price data, key points)
+- Is energetic, educational, and casual (use crypto slang appropriately)
+- Is exactly 1000+ words (CRITICAL for 5 minutes)
 
 Requirements:
 - Target audience: Young crypto degens (18-30, meme-loving, risk-tolerant)
 - Tone: Energetic, educational, casual, use crypto slang
-- Length: 5 minutes of speaking (approximately 900-1000 words to ensure full 5 minutes)
-- CRITICAL: The script MUST be long enough to fill exactly 5 minutes when spoken. Aim for 1000 words minimum.
-- Structure:
-  1. Hook intro (30 seconds) - mention this is a deep dive based on viewer requests
-  2. Overview/Context (45 seconds) - what is this topic and why it matters
-  3. Deep Analysis (3.5-4 minutes) - break down the topic thoroughly:
-     - Key concepts and how they work
-     - Current state and recent developments
-     - Why it's important for crypto
-     - Potential impact or opportunities
-     - Detailed explanations with examples
-  4. Real-world examples or use cases (30 seconds)
-  5. Outro (15 seconds) - encourage more requests, mention videos are created once per day based on comments
+- Length: 5 minutes of speaking (MUST be 1000+ words)
+- Structure: Follow the outline exactly
 - Include: Technical details explained simply, real examples, potential opportunities
 - Use: Crypto terminology appropriately
 - IMPORTANT: Mention that this deep dive was created based on viewer comments and requests
 - IMPORTANT: Mention that new deep dive videos are created once per day based on the most requested topics from comments
+
+QUALITY CHECKLIST - Before finalizing, ensure:
+✅ Script is 1000+ words (for full 5 minutes)
+✅ All outline points are covered
+✅ All viewer questions are answered
+✅ Recent developments are mentioned (from research)
+✅ Technical concepts are explained simply
+✅ Real examples are included
+✅ Topic is mentioned at least 5 times throughout
 
 Also generate:
 1. A catchy YouTube title (under 60 characters, include "DEEP DIVE" or "EXPLAINED")
@@ -654,8 +796,6 @@ Also generate:
    - Provides additional resources or links
 3. Relevant tags (15-20 tags, comma-separated)
 
-CRITICAL: The script text must be at least 1000 words to ensure a full 5 minutes of content. Do not make it shorter.
-
 Format your response as JSON:
 {
   "title": "Video title",
@@ -664,104 +804,165 @@ Format your response as JSON:
   "script": "Full script text here (MUST be 1000+ words for 5 minutes)"
 }`;
 
-    const response = await openai.chat.completions.create({
+    const scriptResponse = await openai.chat.completions.create({
       model: 'gpt-4-turbo-preview',
       messages: [
         {
           role: 'system',
-          content: 'You are Crypto B, a popular crypto YouTuber known for creating educational deep dive content based on viewer requests.'
+          content: 'You are Crypto B, a popular crypto YouTuber known for creating educational deep dive content based on viewer requests. You excel at writing engaging, educational scripts that thoroughly explain complex topics.'
         },
         {
           role: 'user',
-          content: prompt
+          content: scriptPrompt
         }
       ],
       temperature: 0.8,
       response_format: { type: 'json_object' }
     });
 
-    const content = response.choices[0]?.message?.content;
-    if (!content) {
-      throw new Error('No response from OpenAI');
+    const scriptContent = scriptResponse.choices[0]?.message?.content;
+    if (!scriptContent) {
+      throw new Error('No script response from OpenAI');
     }
 
-    const parsed = JSON.parse(content);
+    const parsed = JSON.parse(scriptContent);
     let scriptText = parsed.script || '';
 
-    // Validate script length - ensure it's long enough for 5 minutes
-    // Average speaking rate is ~150 words per minute, so 5 minutes = ~750 words minimum
-    // But we want to ensure full 5 minutes, so aim for 900-1000 words
-    const wordCount = scriptText.split(/\s+/).filter((w: string) => w.length > 0).length;
-    console.log(`📝 Deep dive script word count: ${wordCount} words`);
+    // Validate script quality
+    console.log(`✅ Script generated. Validating quality...`);
+    const { validateScriptQuality } = await import('./topicValidation.js');
+    const qualityResult = validateScriptQuality(scriptText, topic, questionsToAnswer, 1000);
     
-    if (wordCount < 800) {
-      console.warn(`⚠️ Script is only ${wordCount} words (target: 900-1000 for 5 minutes). The video may be shorter than 5 minutes.`);
-      // Try to expand the script if it's too short
-      if (wordCount < 600) {
-        console.warn(`⚠️ Script is too short (${wordCount} words). Video will likely be less than 5 minutes.`);
+    console.log(`📝 Script quality check:
+      - Word count: ${qualityResult.wordCount} (target: 1000+)
+      - Topic mentions: ${qualityResult.topicMentions} (target: 5+)
+      - Covers topic: ${qualityResult.coversTopic ? '✅' : '❌'}
+      - Answers questions: ${qualityResult.answersQuestions ? '✅' : '⚠️'}
+      - Has depth: ${qualityResult.hasEnoughDepth ? '✅' : '⚠️'}
+    `);
+    
+    if (qualityResult.errors.length > 0) {
+      console.warn(`⚠️ Script quality issues:\n${qualityResult.errors.map(e => `  - ${e}`).join('\n')}`);
+    }
+    
+    if (qualityResult.warnings.length > 0) {
+      console.warn(`⚠️ Script quality warnings:\n${qualityResult.warnings.map(w => `  - ${w}`).join('\n')}`);
+    }
+    
+    // If script quality is too low, try regenerating once
+    if (!qualityResult.isHighQuality && qualityResult.errors.length > 0) {
+      console.log(`🔄 Script quality below threshold. Attempting to regenerate with improved prompt...`);
+      
+      const improvedPrompt = `${scriptPrompt}\n\nIMPORTANT: The previous script had quality issues:\n${qualityResult.errors.map(e => `- ${e}`).join('\n')}\n\nPlease ensure the new script addresses ALL of these issues.`;
+      
+      try {
+        const retryResponse = await openai.chat.completions.create({
+          model: 'gpt-4-turbo-preview',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are Crypto B, a popular crypto YouTuber known for creating educational deep dive content based on viewer requests. You excel at writing engaging, educational scripts that thoroughly explain complex topics.'
+            },
+            {
+              role: 'user',
+              content: improvedPrompt
+            }
+          ],
+          temperature: 0.8,
+          response_format: { type: 'json_object' }
+        });
+        
+        const retryContent = retryResponse.choices[0]?.message?.content;
+        if (retryContent) {
+          const retryParsed = JSON.parse(retryContent);
+          const retryScriptText = retryParsed.script || '';
+          const retryQuality = validateScriptQuality(retryScriptText, topic, questionsToAnswer, 1000);
+          
+          if (retryQuality.isHighQuality || retryQuality.errors.length < qualityResult.errors.length) {
+            console.log(`✅ Regenerated script has better quality. Using regenerated version.`);
+            scriptText = retryScriptText;
+            parsed.title = retryParsed.title || parsed.title;
+            parsed.description = retryParsed.description || parsed.description;
+            parsed.tags = retryParsed.tags || parsed.tags;
+          } else {
+            console.warn(`⚠️ Regenerated script still has issues. Using original version.`);
+          }
+        }
+      } catch (retryError) {
+        console.warn('⚠️ Failed to regenerate script. Using original version:', retryError);
       }
     }
 
-    // Generate a captivating 4-word thumbnail title (not just truncated video title)
+    // Generate a captivating 3-word thumbnail title (not just truncated video title)
     let thumbnailTitle = parsed.title || `DEEP DIVE: ${topic}`;
     
     // Remove "DEEP DIVE:" prefix if present for thumbnail title generation
     const topicForThumbnail = topic.replace(/^DEEP DIVE:\s*/i, '').trim();
     
     try {
-      const thumbnailPrompt = `Create a SHORT, PROFESSIONAL, CATCHY thumbnail title for a YouTube deep dive crypto education video. This will be displayed on a thumbnail image, so it needs to be:
-- EXACTLY 4 words maximum (no more, no less if possible)
-- Professional and educational (not clickbait, but still captivating)
-- Focus on the core topic being explained
-- Use clear, concise language
-- Make it informative and intriguing
-- NO emojis (keep it clean and professional)
-- Title case (Capitalize Important Words)
-- Do NOT just truncate the video title - create a NEW, BETTER title that captures the essence
+      const thumbnailPrompt = `Create a SHORT, CATCHY thumbnail title for a YouTube crypto deep dive video. This will be displayed on a thumbnail image, so it needs to be:
+- EXACTLY 3 words maximum (no more, no less if possible)
+- Eye-catching and clickable
+- Use power words (BREAKING, SHOCKING, INSANE, MOONING, CRASH, SURGE, EXPLAINED, REVEALED, SECRETS, etc.)
+- Keep the main message but make it punchy and attention-grabbing
+- Focus on the most impactful element of the topic
+- NO emojis (keep it text-only, but still exciting)
+- Use ALL CAPS for maximum visual impact
+- Add exclamation marks for excitement when appropriate
 
 Topic being explained: "${topicForThumbnail}"
 Original video title: "${parsed.title || `DEEP DIVE: ${topic}`}"
 
-Return ONLY the 4-word thumbnail title, nothing else. No quotes, no explanations. Make it professional and captivating.`;
+Return ONLY the 3-word thumbnail title in ALL CAPS, nothing else. No quotes, no explanations. Make it exciting and clickable but NO emojis.`;
 
       const thumbnailResponse = await openai.chat.completions.create({
         model: 'gpt-4-turbo-preview',
         messages: [
           {
             role: 'system',
-            content: 'You are an expert at creating short, professional, captivating YouTube thumbnail titles for educational deep dive videos. Always return exactly 4 words when possible. Keep it professional and informative, not clickbait.'
+            content: 'You are an expert at creating short, catchy YouTube thumbnail titles that grab attention. Always return exactly 3 words when possible. Use ALL CAPS and power words, but NO emojis.'
           },
           {
             role: 'user',
             content: thumbnailPrompt
           }
         ],
-        temperature: 0.7,
+        temperature: 0.9,
         max_tokens: 30
       });
 
       const generatedThumbnailTitle = thumbnailResponse.choices[0]?.message?.content?.trim();
       if (generatedThumbnailTitle) {
         // Remove decorative quotes
-        thumbnailTitle = generatedThumbnailTitle.replace(/^["']|["']$/g, '').trim();
+        const hasQuoteContext = /\b(said|says|announced|stated|declared|quoted|tweeted|posted|wrote|claimed|revealed)\b/i.test(generatedThumbnailTitle);
+        if (!hasQuoteContext) {
+          thumbnailTitle = generatedThumbnailTitle.replace(/^["']|["']$/g, '');
+          thumbnailTitle = thumbnailTitle.replace(/\s*["']\s*/g, ' ');
+          thumbnailTitle = thumbnailTitle.trim();
+        } else {
+          thumbnailTitle = generatedThumbnailTitle.trim();
+        }
         
-        // Ensure it's exactly 4 words (or less if topic is very short)
+        // Convert to ALL CAPS for maximum impact (but preserve numbers and punctuation)
+        thumbnailTitle = thumbnailTitle.replace(/[a-z]/g, (match: string) => match.toUpperCase());
+        
+        // Ensure it's 3 words max
         const words = thumbnailTitle.split(/\s+/).filter((w: string) => w.length > 0);
-        if (words.length > 4) {
-          thumbnailTitle = words.slice(0, 4).join(' ');
+        if (words.length > 3) {
+          thumbnailTitle = words.slice(0, 3).join(' ');
         }
         
         console.log(`✅ Generated deep dive thumbnail title: "${thumbnailTitle}"`);
       }
     } catch (error) {
       console.warn('Failed to generate AI thumbnail title, using fallback:', error);
-      // Fallback: Create a simple 4-word title from the topic
+      // Fallback: Create a simple 3-word title from the topic
       const topicWords = topicForThumbnail.split(/\s+/).filter((w: string) => w.length > 0);
-      if (topicWords.length <= 4) {
-        thumbnailTitle = topicWords.join(' ');
+      if (topicWords.length <= 3) {
+        thumbnailTitle = topicWords.join(' ').toUpperCase();
       } else {
-        // Take first 4 words and make it professional
-        thumbnailTitle = topicWords.slice(0, 4).join(' ');
+        // Take first 3 words and make it ALL CAPS
+        thumbnailTitle = topicWords.slice(0, 3).join(' ').toUpperCase();
       }
     }
 
@@ -775,7 +976,7 @@ Return ONLY the 4-word thumbnail title, nothing else. No quotes, no explanations
 
     return {
       title: parsed.title || `DEEP DIVE: ${topic}`,
-      thumbnailTitle: thumbnailTitle, // Use the AI-generated 4-word title
+      thumbnailTitle: thumbnailTitle, // Use the AI-generated 3-word title
       description: parsed.description || '',
       tags: Array.isArray(parsed.tags) ? parsed.tags : parsed.tags?.split(',').map((t: string) => t.trim()) || [],
       script: scriptText,

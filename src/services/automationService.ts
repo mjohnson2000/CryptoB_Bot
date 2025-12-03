@@ -126,14 +126,41 @@ class AutomationService {
    * Get current automation state
    */
   getState(): AutomationState {
-    const state: AutomationState = {
-      isRunning: this.state.isRunning,
-      cadenceHours: this.state.cadenceHours,
-      lastRun: this.state.lastRun?.toISOString(),
-      nextRun: this.state.isRunning ? this.calculateNextRunTime().toISOString() : undefined,
-      currentJobId: this.state.currentJobId
-    };
-    return state;
+    try {
+      let nextRun: string | undefined;
+      if (this.state.isRunning) {
+        try {
+          nextRun = this.calculateNextRunTime().toISOString();
+        } catch (error) {
+          console.error('Error calculating next run time:', error);
+          // Fallback: calculate from lastRun or now
+          if (this.state.lastRun) {
+            nextRun = new Date(this.state.lastRun.getTime() + (this.state.cadenceHours * 60 * 60 * 1000)).toISOString();
+          } else {
+            nextRun = new Date(Date.now() + (this.state.cadenceHours * 60 * 60 * 1000)).toISOString();
+          }
+        }
+      }
+      
+      const state: AutomationState = {
+        isRunning: this.state.isRunning,
+        cadenceHours: this.state.cadenceHours,
+        lastRun: this.state.lastRun?.toISOString(),
+        nextRun,
+        currentJobId: this.state.currentJobId
+      };
+      return state;
+    } catch (error) {
+      console.error('Error in getState():', error);
+      // Return safe default state
+      return {
+        isRunning: false,
+        cadenceHours: 6,
+        lastRun: undefined,
+        nextRun: undefined,
+        currentJobId: undefined
+      };
+    }
   }
 
   /**

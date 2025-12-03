@@ -18,6 +18,7 @@ export interface TopicRequest {
     videoTitle: string;
     author: string;
   }>;
+  questions: string[]; // Specific questions viewers are asking about this topic
   lastUpdated: string;
 }
 
@@ -230,11 +231,12 @@ Comments:
 ${commentsText}
 
 Extract topics that viewers are asking for more information about. Look for phrases like:
-- "more about", "deep dive", "explain", "tell me about", "want to know", "learn more", "can you cover", "discuss", "talk about", "dive into", "break down"
+- "more about", "deep dive", "explain", "tell me about", "want to know", "learn more", "can you cover", "discuss", "talk about", "dive into", "break down", "how does", "what is", "why", "when", "where"
 
 For each topic requested, identify:
 1. The topic name (e.g., "Bitcoin", "Ethereum", "DeFi", "NFTs", "Regulation", etc.)
 2. How many times it was requested
+3. Specific questions viewers are asking about this topic (extract the actual questions, not just the topic name)
 
 Format your response as JSON:
 {
@@ -242,10 +244,16 @@ Format your response as JSON:
     {
       "topic": "Topic Name",
       "count": 5,
+      "questions": ["What is Bitcoin?", "How does Bitcoin work?", "Is Bitcoin a good investment?"],
       "sampleComments": ["comment 1", "comment 2"]
     }
   ]
 }
+
+IMPORTANT: Extract the actual questions viewers are asking. For example:
+- "Can you explain how Bitcoin mining works?" -> question: "How does Bitcoin mining work?"
+- "I want to know more about DeFi" -> question: "What is DeFi and how does it work?"
+- "Tell me about Ethereum staking" -> question: "What is Ethereum staking and how does it work?"
 
 Only return the JSON object, no other text.`;
 
@@ -283,6 +291,7 @@ Only return the JSON object, no other text.`;
           topic,
           count: aiTopic.count || 0,
           comments: [],
+          questions: aiTopic.questions || [],
           lastUpdated: new Date().toISOString()
         });
       }
@@ -296,7 +305,9 @@ Only return the JSON object, no other text.`;
         if (lowerText.includes(lowerTopic) && 
             (lowerText.includes('more') || lowerText.includes('deep') || 
              lowerText.includes('explain') || lowerText.includes('dive') ||
-             lowerText.includes('cover') || lowerText.includes('discuss'))) {
+             lowerText.includes('cover') || lowerText.includes('discuss') ||
+             lowerText.includes('how') || lowerText.includes('what') ||
+             lowerText.includes('why') || lowerText.includes('tell me'))) {
           topicRequest.comments.push({
             text: comment.text,
             videoId: comment.videoId,
@@ -304,6 +315,15 @@ Only return the JSON object, no other text.`;
             author: comment.author
           });
         }
+      }
+      
+      // Ensure questions array exists and has unique questions
+      if (!topicRequest.questions || topicRequest.questions.length === 0) {
+        // Extract questions from comments if AI didn't provide them
+        topicRequest.questions = extractQuestionsFromComments(topicRequest.comments, topic);
+      } else {
+        // Deduplicate questions
+        topicRequest.questions = [...new Set(topicRequest.questions)];
       }
     }
 
@@ -315,6 +335,37 @@ Only return the JSON object, no other text.`;
     // Fallback to simple pattern matching
     return extractTopicRequestsFallback(comments);
   }
+}
+
+/**
+ * Extract specific questions from comments about a topic
+ */
+function extractQuestionsFromComments(
+  comments: Array<{ text: string; author: string }>,
+  topic: string
+): string[] {
+  const questions: string[] = [];
+  const questionPatterns = [
+    /(?:what|how|why|when|where|can you|tell me|explain|i want to know|i'd like to know)[^.!?]*[?!.]/gi,
+    /(?:what is|how does|why is|when will|where can)[^.!?]*[?!.]/gi
+  ];
+  
+  comments.forEach(comment => {
+    questionPatterns.forEach(pattern => {
+      const matches = comment.text.match(pattern);
+      if (matches) {
+        matches.forEach(match => {
+          const cleanQuestion = match.trim();
+          if (cleanQuestion.length > 10 && cleanQuestion.length < 150) {
+            questions.push(cleanQuestion);
+          }
+        });
+      }
+    });
+  });
+  
+  // Deduplicate and limit to top 10 questions
+  return [...new Set(questions)].slice(0, 10);
 }
 
 /**
@@ -350,6 +401,7 @@ function extractTopicRequestsFallback(comments: YouTubeComment[]): TopicRequest[
               topic,
               count: 0,
               comments: [],
+              questions: [],
               lastUpdated: new Date().toISOString()
             });
           }
@@ -381,7 +433,7 @@ export async function getMostRequestedTopic(): Promise<TopicRequest | null> {
     // Import deep dive topic history to check for duplicates
     const { deepDiveTopicHistory } = await import('./deepDiveTopicHistory.js');
     
-    const comments = await getRecentVideoComments(10);
+    const comments = await getRecentVideoComments(50); // Increased from 10 to 50
     const topicRequests = await extractTopicRequests(comments);
     
     // Filter out topics that have already been covered
@@ -465,6 +517,7 @@ async function getTrendingTopicFromNews(): Promise<TopicRequest | null> {
           topic: topic.title,
           count: 0, // Indicates it's from news, not comments
           comments: [],
+          questions: [],
           lastUpdated: new Date().toISOString()
         };
       } else {
@@ -479,6 +532,7 @@ async function getTrendingTopicFromNews(): Promise<TopicRequest | null> {
       topic: trendingTopics[0].title,
       count: 0,
       comments: [],
+      questions: [],
       lastUpdated: new Date().toISOString()
     };
   } catch (error) {

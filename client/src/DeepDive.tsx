@@ -250,7 +250,13 @@ function DeepDive() {
   };
 
   const handleCreateDeepDive = async (topic?: string) => {
-    console.log('Create deep dive clicked, topic:', topic);
+    // Prevent multiple clicks
+    if (loading) {
+      console.warn('⚠️ Already creating deep dive, ignoring click');
+      return;
+    }
+    
+    console.log('Create deep dive clicked, topic:', topic || 'AI will select');
     setLoading(true);
     setError(null);
     
@@ -263,9 +269,9 @@ function DeepDive() {
     setProgress(initialProgress);
 
     try {
-      console.log('Sending request to /api/deepdive/create with topic:', topic);
+      console.log('Sending request to /api/deepdive/create with topic:', topic || 'undefined (AI will select)');
       const response = await axios.post<{ success: boolean; jobId: string; message: string }>('/api/deepdive/create', {
-        topic: topic || undefined
+        ...(topic && { topic }) // Only include topic if it's provided
       });
       
       console.log('Response received:', response.data);
@@ -515,24 +521,19 @@ function DeepDive() {
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    console.log('🔥 BUTTON CLICKED! Topic:', mostRequestedTopic.topic, 'Loading:', loading);
-                    console.log('🔥 Button element:', e.target);
-                    console.log('🔥 Event type:', e.type);
-                    if (!loading) {
-                      handleCreateDeepDive(mostRequestedTopic.topic);
-                    } else {
-                      console.warn('⚠️ Button is disabled (loading=true)');
+                    if (loading) {
+                      console.warn('⚠️ Button click ignored - already loading');
+                      return;
                     }
-                  }}
-                  onMouseDown={() => {
-                    console.log('🖱️ Mouse down on button');
+                    if (!mostRequestedTopic?.topic) {
+                      console.error('❌ No topic available');
+                      setError('No topic available. Please try again.');
+                      return;
+                    }
+                    console.log('🔥 Creating deep dive for topic:', mostRequestedTopic.topic);
+                    handleCreateDeepDive(mostRequestedTopic.topic);
                   }}
                   disabled={loading}
-                  style={{ 
-                    cursor: loading ? 'not-allowed' : 'pointer',
-                    opacity: loading ? 0.7 : 1,
-                    pointerEvents: loading ? 'none' : 'auto'
-                  }}
                 >
                   {loading ? 'Creating...' : `Create Deep Dive on ${mostRequestedTopic.topic}`}
                 </button>
@@ -547,23 +548,14 @@ function DeepDive() {
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  console.log('🔥 BUTTON CLICKED! (No topic) Loading state:', loading);
-                  console.log('🔥 Button element:', e.target);
-                  if (!loading) {
-                    handleCreateDeepDive();
-                  } else {
-                    console.warn('⚠️ Button is disabled (loading=true)');
+                  if (loading) {
+                    console.warn('⚠️ Button click ignored - already loading');
+                    return;
                   }
-                }}
-                onMouseDown={() => {
-                  console.log('🖱️ Mouse down on button (no topic)');
+                  console.log('🔥 Creating deep dive with AI-selected topic');
+                  handleCreateDeepDive(); // No topic = AI will select
                 }}
                 disabled={loading}
-                style={{ 
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  opacity: loading ? 0.7 : 1,
-                  pointerEvents: loading ? 'none' : 'auto'
-                }}
               >
                 {loading ? 'Creating...' : 'Create Deep Dive (AI will select trending topic)'}
               </button>

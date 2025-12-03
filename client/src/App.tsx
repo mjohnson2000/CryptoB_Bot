@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import DeepDive from './DeepDive';
+import Blog from './Blog';
 import './App.css';
 
 // EST timezone helpers (America/New_York handles EST/EDT automatically)
@@ -82,7 +83,7 @@ function getCurrentEST(): string {
 
 interface JobProgress {
   jobId: string;
-  status: 'pending' | 'scraping' | 'analyzing' | 'fetching_prices' | 'fetching_nfts' | 'generating_script' | 'creating_video' | 'updating_timestamps' | 'creating_thumbnail' | 'ready' | 'uploading' | 'completed' | 'error';
+  status: 'pending' | 'scraping' | 'analyzing' | 'fetching_prices' | 'fetching_nfts' | 'generating_script' | 'creating_video' | 'updating_timestamps' | 'creating_thumbnail' | 'ready' | 'uploading' | 'generating_blog' | 'posting_blog' | 'completed' | 'error';
   progress: number;
   message: string;
   result?: {
@@ -97,6 +98,8 @@ interface JobProgress {
     videoPath?: string;
     thumbnailPath?: string;
     readyForApproval?: boolean;
+    blogUrl?: string;
+    blogId?: string;
     error?: string;
   };
 }
@@ -110,7 +113,7 @@ interface AutomationState {
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'news' | 'deepdive'>('news');
+  const [activeTab, setActiveTab] = useState<'news' | 'deepdive' | 'blog'>('news');
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<JobProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -269,6 +272,8 @@ function App() {
       case 'creating_thumbnail': return '🖼️';
       case 'ready': return '✅';
       case 'uploading': return '📤';
+      case 'generating_blog': return '✍️';
+      case 'posting_blog': return '📝';
       case 'completed': return '🎉';
       case 'error': return '❌';
       default: return '⏳';
@@ -426,10 +431,18 @@ function App() {
           >
             🎯 Deep Dive Videos
           </button>
+          <button
+            className={`tab ${activeTab === 'blog' ? 'active' : ''}`}
+            onClick={() => setActiveTab('blog')}
+          >
+            📝 Blog Posts
+          </button>
         </div>
 
         {activeTab === 'deepdive' ? (
           <DeepDive />
+        ) : activeTab === 'blog' ? (
+          <Blog />
         ) : (
         <main className="main">
           {/* Automation Section */}
@@ -695,6 +708,15 @@ function App() {
                 >
                   🎥 Watch on YouTube
                 </a>
+                {progress.result.blogUrl && (
+                  <a 
+                    href={progress.result.blogUrl} 
+                    className="youtube-link"
+                    style={{ marginTop: '10px', display: 'block' }}
+                  >
+                    📝 Read Blog Post
+                  </a>
+                )}
               </div>
             )}
           </div>

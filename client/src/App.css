@@ -8,6 +8,23 @@
   z-index: 1;
 }
 
+/* Admin section input placeholders - black color */
+.app input::placeholder,
+.app textarea::placeholder,
+.app .form-group input::placeholder,
+.app .form-group textarea::placeholder {
+  color: #000000;
+}
+
+/* Admin section input text - black color for readability */
+.app input,
+.app textarea,
+.app .form-group input,
+.app .form-group textarea {
+  color: #000000;
+  background: #ffffff;
+}
+
 .container {
   max-width: 900px;
   width: 100%;
@@ -239,6 +256,7 @@
   padding: 0.5rem;
   background: white;
   border-radius: 6px;
+  color: #000000;
 }
 
 .info-card {
@@ -386,6 +404,10 @@
   font-size: 1rem;
 }
 
+.preview-item p {
+  color: #000000;
+}
+
 .thumbnail-preview {
   margin-top: 0.5rem;
   border-radius: 8px;
@@ -491,6 +513,10 @@
   font-size: 1.1rem;
 }
 
+.status-text {
+  color: #000000;
+}
+
 .status-dot {
   width: 12px;
   height: 12px;
@@ -551,6 +577,18 @@
   border: 2px solid #ddd;
   border-radius: 8px;
   transition: border-color 0.3s ease;
+  color: #000000;
+  background: #ffffff;
+}
+
+.cadence-input::placeholder,
+#cadence::placeholder {
+  color: #000000;
+}
+
+#cadence {
+  color: #000000;
+  background: #ffffff;
 }
 
 .cadence-input:focus {
@@ -581,6 +619,18 @@
   border: 2px solid #ddd;
   border-radius: 8px;
   transition: border-color 0.3s ease;
+  color: #000000;
+  background: #ffffff;
+}
+
+.start-time-input::placeholder,
+#startTime::placeholder {
+  color: #000000;
+}
+
+#startTime {
+  color: #000000;
+  background: #ffffff;
 }
 
 .start-time-input:focus {
@@ -727,9 +777,11 @@
 }
 
 .tab.active {
-  background: linear-gradient(135deg, #F7931A 0%, #E8821A 50%, #D6711A 100%);
-  border-color: #F7931A;
-  box-shadow: 0 4px 15px rgba(247, 147, 26, 0.3);
+  background: linear-gradient(135deg, var(--degen-orange) 0%, var(--degen-orange-dark) 100%);
+  border-color: var(--degen-orange);
+  box-shadow: 
+    0 4px 15px var(--degen-shadow-orange),
+    0 0 20px rgba(247, 147, 26, 0.3);
 }
 
 /* Deep Dive Specific Styles */
@@ -744,7 +796,8 @@
 .topic-card h4 {
   font-size: 1.5rem;
   margin-bottom: 0.5rem;
-  color: #F7931A;
+  color: var(--degen-orange);
+  text-shadow: 0 0 10px var(--degen-shadow-orange);
 }
 
 .manual-topic-input {
@@ -769,7 +822,8 @@
 
 .topic-input:focus {
   outline: none;
-  border-color: #F7931A;
+  border-color: var(--degen-orange);
   background: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 0 10px var(--degen-shadow-orange);
 }
 

@@ -3,7 +3,7 @@
  * PM2 is a process manager that keeps your server running and auto-restarts on crashes
  * 
  * Installation: npm install -g pm2
- * Start: pm2 start ecosystem.config.cjs
+ * Start: pm2 start ecosystem.config.js
  * Stop: pm2 stop youtube-crypto-bot
  * Restart: pm2 restart youtube-crypto-bot
  * Status: pm2 status

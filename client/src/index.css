@@ -1,3 +1,27 @@
+/* Global Degen Color Palette - Used Across All Components */
+:root {
+  --degen-bg-dark: #0a0a0f;
+  --degen-bg-darker: #050508;
+  --degen-bg-medium: #1a0a2e;
+  --degen-bg-light: #2d1b4e;
+  --degen-orange: #F7931A;
+  --degen-orange-bright: #FFA500;
+  --degen-orange-dark: #E8821A;
+  --degen-cyan: #00D9FF;
+  --degen-cyan-bright: #00FFFF;
+  --degen-purple: #9945FF;
+  --degen-purple-bright: #B366FF;
+  --degen-green: #00FF88;
+  --degen-pink: #FF00FF;
+  --degen-text: #FFFFFF;
+  --degen-text-muted: rgba(255, 255, 255, 0.7);
+  --degen-text-dark: #1a1a1a;
+  --degen-card-bg: rgba(255, 255, 255, 0.05);
+  --degen-card-border: rgba(247, 147, 26, 0.2);
+  --degen-shadow-orange: rgba(247, 147, 26, 0.3);
+  --degen-shadow-purple: rgba(153, 69, 255, 0.3);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -10,9 +34,9 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: linear-gradient(135deg, #1a0a2e 0%, #2d1b4e 30%, #1a0a2e 100%);
+  background: linear-gradient(135deg, var(--degen-bg-dark) 0%, var(--degen-bg-medium) 30%, var(--degen-bg-dark) 100%);
   min-height: 100vh;
-  color: #333;
+  color: var(--degen-text);
 }
 
 code {

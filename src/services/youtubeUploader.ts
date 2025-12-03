@@ -11,7 +11,8 @@ interface UploadResult {
 export async function uploadToYouTube(
   videoPath: string,
   thumbnailPath: string,
-  script: VideoScript
+  script: VideoScript,
+  isDeepDive: boolean = false
 ): Promise<UploadResult> {
   try {
     const oauth2Client = new google.auth.OAuth2(
@@ -130,11 +131,13 @@ export async function uploadToYouTube(
       }
     }
 
-    return {
+    const result = {
       videoId,
       url: `https://www.youtube.com/watch?v=${videoId}`,
       success: true
     };
+
+    return result;
   } catch (error: any) {
     // Check if it's a quota exceeded error
     const isQuotaError = error?.message?.includes('quota') || 

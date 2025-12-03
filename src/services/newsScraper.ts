@@ -139,7 +139,24 @@ async function fetchRSSFeed(feed: RSSFeed, cutoffDate: Date): Promise<NewsArticl
         try {
           // Handle different RSS formats (RSS 2.0 and Atom)
           const title = item.title?.[0]?._ || item.title?.[0] || item.title || '';
-          const link = item.link?.[0]?._ || item.link?.[0]?.$.href || item.link?.[0] || item.id?.[0] || '';
+          // Safely extract link with better error handling
+          let link = '';
+          if (item.link) {
+            if (Array.isArray(item.link) && item.link[0]) {
+              const linkItem = item.link[0];
+              // Handle different link formats safely
+              if (typeof linkItem === 'string') {
+                link = linkItem;
+              } else if (linkItem && typeof linkItem === 'object') {
+                link = linkItem._ || linkItem.href || (linkItem.$ && linkItem.$.href) || '';
+              }
+            } else if (typeof item.link === 'string') {
+              link = item.link;
+            }
+          }
+          if (!link && item.id?.[0]) {
+            link = item.id[0];
+          }
           const pubDate = item.pubDate?.[0] || item.published?.[0] || item.updated?.[0] || '';
           const description = item.description?.[0]?._ || item.description?.[0] || item.summary?.[0]?._ || item.summary?.[0] || '';
 

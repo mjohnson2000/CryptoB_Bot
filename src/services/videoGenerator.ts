@@ -157,8 +157,15 @@ async function generateAudio(script: string, outputDir: string): Promise<string>
     console.log(`🔗 Concatenating ${audioChunks.length} audio chunks...`);
     
     // Create a file list for FFmpeg concat
+    // Use absolute paths to avoid path resolution issues (prevents "output/output" bug)
     const concatListPath = path.join(outputDir, `concat_list_${Date.now()}.txt`);
-    const concatList = audioChunks.map(chunk => `file '${chunk.replace(/'/g, "'\\''")}'`).join('\n');
+    const concatList = audioChunks.map(chunk => {
+      // Convert to absolute path to avoid "output/output" issues
+      const absoluteChunkPath = path.isAbsolute(chunk) ? chunk : path.resolve(process.cwd(), chunk);
+      // Escape single quotes and backslashes for FFmpeg
+      const escapedPath = absoluteChunkPath.replace(/\\/g, '/').replace(/'/g, "'\\''");
+      return `file '${escapedPath}'`;
+    }).join('\n');
     await fs.writeFile(concatListPath, concatList);
     
     // Use FFmpeg to concatenate
@@ -271,16 +278,79 @@ async function generateSimpleSubtitles(
 }
 
 /**
+ * Split script into sentences while preserving punctuation
+ */
+function splitIntoSentences(text: string): string[] {
+  // Split by sentence-ending punctuation followed by space or end of string
+  // This regex captures: period, exclamation, question mark, followed by space or end
+  const sentences: string[] = [];
+  const parts = text.split(/([.!?]+(?:\s+|$))/);
+  
+  for (let i = 0; i < parts.length; i += 2) {
+    const sentence = (parts[i] || '') + (parts[i + 1] || '');
+    if (sentence.trim().length > 0) {
+      sentences.push(sentence.trim());
+    }
+  }
+  
+  // If no sentence endings found, return entire text as one sentence
+  if (sentences.length === 0) {
+    return [text];
+  }
+  
+  return sentences;
+}
+
+/**
+ * Calculate Levenshtein distance for better fuzzy matching
+ */
+function levenshteinDistance(str1: string, str2: string): number {
+  const matrix: number[][] = [];
+  const len1 = str1.length;
+  const len2 = str2.length;
+  
+  for (let i = 0; i <= len1; i++) {
+    matrix[i] = [i];
+  }
+  
+  for (let j = 0; j <= len2; j++) {
+    matrix[0][j] = j;
+  }
+  
+  for (let i = 1; i <= len1; i++) {
+    for (let j = 1; j <= len2; j++) {
+      const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,      // deletion
+        matrix[i][j - 1] + 1,      // insertion
+        matrix[i - 1][j - 1] + cost // substitution
+      );
+    }
+  }
+  
+  return matrix[len1][len2];
+}
+
+/**
  * Match Whisper words with original script to add punctuation
- * This ensures captions have proper punctuation (commas, periods, etc.)
+ * HYBRID APPROACH: Sentence-level matching + improved word matching + post-processing
  */
 function addPunctuationFromScript(whisperWords: any[], script: string): any[] {
-  // Split script into words while preserving punctuation attached to words
-  // This regex splits on spaces but keeps punctuation with words
-  const scriptWords = script.split(/\s+/).filter(w => w.length > 0);
+  // STEP 1: Split script into sentences
+  const scriptSentences = splitIntoSentences(script);
   
-  // Match Whisper words with script words
-  let scriptIndex = 0;
+  // Split each sentence into words while preserving punctuation
+  const sentenceWords: Array<{ word: string; sentenceIndex: number; wordIndex: number }> = [];
+  scriptSentences.forEach((sentence, sentenceIndex) => {
+    const words = sentence.split(/(\s+)/).filter(w => w.trim().length > 0);
+    words.forEach((word, wordIndex) => {
+      sentenceWords.push({ word, sentenceIndex, wordIndex });
+    });
+  });
+  
+  // STEP 2: Match Whisper words to sentences first, then words within sentences
+  let currentSentenceIndex = 0;
+  let scriptWordIndex = 0;
   const matchedWords: any[] = [];
   
   whisperWords.forEach((whisperWord: any) => {
@@ -290,40 +360,88 @@ function addPunctuationFromScript(whisperWords: any[], script: string): any[] {
       return;
     }
     
-    // Search forward in script for matching word (within next 10 words)
-    let bestMatch: { word: string; index: number; score: number } | null = null;
-    const searchWindow = Math.min(scriptIndex + 10, scriptWords.length);
+    // Find which sentence we're likely in based on current position
+    let searchStart = Math.max(0, scriptWordIndex - 5);
+    let searchEnd = Math.min(scriptWordIndex + 30, sentenceWords.length); // Increased window
     
-    for (let i = scriptIndex; i < searchWindow; i++) {
-      const scriptWord = scriptWords[i];
-      const scriptNormalized = scriptWord.toLowerCase().replace(/[^\w]/g, '');
+    let bestMatch: { word: string; index: number; score: number } | null = null;
+    
+    // Search in expanded window
+    for (let i = searchStart; i < searchEnd; i++) {
+      const scriptWord = sentenceWords[i];
+      const scriptNormalized = scriptWord.word.toLowerCase().replace(/[^\w]/g, '');
       
-      // Calculate match score (exact match = highest score)
+      if (!scriptNormalized) continue;
+      
+      // Calculate match score with multiple strategies
       let score = 0;
+      
+      // Exact match (highest priority)
       if (scriptNormalized === whisperText) {
-        score = 100; // Exact match
-      } else if (scriptNormalized.startsWith(whisperText) || whisperText.startsWith(scriptNormalized)) {
-        score = 80; // Prefix match
-      } else if (scriptNormalized.includes(whisperText) || whisperText.includes(scriptNormalized)) {
-        score = 50; // Partial match
+        score = 100;
+      }
+      // Prefix/suffix match - but be very careful to prevent single letters matching longer words
+      // This prevents "B" from matching "be", "before", "because", etc.
+      else {
+        const lengthDiff = Math.abs(scriptNormalized.length - whisperText.length);
+        const isPrefixMatch = scriptNormalized.startsWith(whisperText) || whisperText.startsWith(scriptNormalized);
+        
+        if (isPrefixMatch) {
+          // CRITICAL: Don't allow single character to match longer words
+          // This is the main cause of "B" replacing "be", "before", etc.
+          if (scriptNormalized.length === 1 && whisperText.length > 1) {
+            // Script has single char, Whisper has longer word - don't match
+            // (e.g., script "B," should not match Whisper "be")
+            score = 0;
+          } else if (whisperText.length === 1 && scriptNormalized.length > 1) {
+            // Whisper has single char, script has longer word - don't match
+            // (e.g., Whisper "B" should not match script "be")
+            score = 0;
+          } else if (lengthDiff <= 2 && scriptNormalized.length > 1 && whisperText.length > 1) {
+            // Both are multi-character and similar length - allow prefix match
+            score = 85;
+          } else if (scriptNormalized.length === 1 && whisperText.length === 1) {
+            // Both are single characters - should have been caught by exact match above
+            score = 0;
+          }
+        }
+        
+        // If prefix match didn't work or wasn't applicable, try Levenshtein distance for fuzzy matching
+        if (score === 0) {
+          const distance = levenshteinDistance(scriptNormalized, whisperText);
+          const maxLen = Math.max(scriptNormalized.length, whisperText.length);
+          if (maxLen > 0) {
+            const similarity = 1 - (distance / maxLen);
+            // Only consider if similarity is high enough (>= 80%)
+            if (similarity >= 0.8) {
+              score = Math.round(similarity * 70); // Scale to 0-70 range
+            }
+          }
+        }
+      }
+      
+      // Bonus for proximity (closer words get higher score)
+      if (score > 0) {
+        const distance = Math.abs(i - scriptWordIndex);
+        const proximityBonus = Math.max(0, 10 - distance); // Up to 10 point bonus
+        score += proximityBonus;
       }
       
       if (score > 0 && (!bestMatch || score > bestMatch.score)) {
-        bestMatch = { word: scriptWord, index: i, score };
+        bestMatch = { word: scriptWord.word, index: i, score };
       }
     }
     
-    if (bestMatch && bestMatch.score >= 50) {
-      // Use script word with punctuation
+    // Accept match if score is good enough (lowered threshold for better coverage)
+    if (bestMatch && bestMatch.score >= 40) {
       matchedWords.push({
         ...whisperWord,
         word: bestMatch.word,
         originalWord: whisperWord.word
       });
-      scriptIndex = bestMatch.index + 1;
+      scriptWordIndex = bestMatch.index + 1;
     } else {
-      // No good match - keep original word
-      // But preserve any punctuation that Whisper might have included
+      // No good match - keep original word but try to preserve any punctuation Whisper found
       matchedWords.push({
         ...whisperWord,
         word: whisperWord.word,
@@ -333,6 +451,135 @@ function addPunctuationFromScript(whisperWords: any[], script: string): any[] {
   });
   
   return matchedWords;
+}
+
+/**
+ * Fix numeric percentage patterns in text (e.g., "5 2 percent" -> "5.2%", "plus 3 1" -> "+3.1%")
+ */
+function fixPercentagePatterns(text: string): string {
+  let fixed = text;
+  
+  // Pattern 1: Fix "X Y percent" -> "X.Y%" (e.g., "5 2 percent" -> "5.2%")
+  // This handles cases where Whisper transcribed "5.2" as "5 2"
+  fixed = fixed.replace(/\b([+-]?)(\d+)\s+(\d+)\s+percent\b/gi, (match, sign, num1, num2) => {
+    // Only if num2 is single digit (likely decimal part)
+    if (num2.length === 1) {
+      return `${sign || ''}${num1}.${num2}%`;
+    }
+    return match; // Keep original if num2 is multi-digit
+  });
+  
+  // Pattern 2: Fix "X.2 percent" -> "X.2%" (already has decimal)
+  fixed = fixed.replace(/\b([+-]?\d+\.\d+)\s+percent\b/gi, '$1%');
+  
+  // Pattern 3: Fix "X percent" -> "X.0%" (whole number percentages)
+  // But be careful - only if it's likely a percentage (small numbers, or in price context)
+  fixed = fixed.replace(/\b([+-]?)(\d{1,2})\s+percent\b/gi, (match, sign, num) => {
+    // Only add .0 for numbers 0-99 (likely percentages)
+    const numValue = parseInt(num);
+    if (numValue >= 0 && numValue <= 99) {
+      return `${sign || ''}${num}.0%`;
+    }
+    return match;
+  });
+  
+  // Pattern 4: Fix "X%" -> "X.0%" if it's a whole number without decimal
+  // Only for numbers that look like percentages (0-100 range)
+  fixed = fixed.replace(/\b([+-]?)(\d{1,2})%\b/g, (match, sign, num) => {
+    const numValue = parseInt(num);
+    // If it's a whole number in percentage range and doesn't already have decimal
+    if (numValue >= 0 && numValue <= 100 && !match.includes('.')) {
+      return `${sign || ''}${num}.0%`;
+    }
+    return match;
+  });
+  
+  // Pattern 5: Fix cases where decimal point is missing but should be there
+  // e.g., "52%" when it should be "5.2%" (if preceded by coin symbol or price context)
+  // This is trickier, so we'll be conservative - only fix if pattern suggests it
+  // Look for patterns like "BTC 52 percent" -> "BTC 5.2%"
+  fixed = fixed.replace(/\b([A-Z]{2,5})\s+(\d{2,3})\s+percent\b/gi, (match, symbol, num) => {
+    // If number is 2-3 digits and likely a percentage (10-999), try to infer decimal
+    const numValue = parseInt(num);
+    if (numValue >= 10 && numValue <= 999) {
+      // If it's a 2-digit number, likely "X.Y" format
+      if (num.length === 2) {
+        return `${symbol} ${num[0]}.${num[1]}%`;
+      }
+      // If it's 3-digit, might be "XX.Y" format
+      if (num.length === 3 && numValue < 100) {
+        return `${symbol} ${num[0]}${num[1]}.${num[2]}%`;
+      }
+    }
+    return match;
+  });
+  
+  return fixed;
+}
+
+/**
+ * Post-process subtitle lines to recover punctuation from original script
+ * This catches any punctuation that was missed in the word-by-word matching
+ */
+function recoverPunctuationInLine(lineText: string, script: string): string {
+  // STEP 1: Fix percentage patterns first
+  let fixed = fixPercentagePatterns(lineText);
+  
+  // STEP 2: Normalize both texts for comparison (remove punctuation, lowercase)
+  const normalize = (text: string) => text.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+  
+  const normalizedLine = normalize(fixed);
+  if (!normalizedLine) return fixed;
+  
+  // STEP 3: Find the best matching segment in the script
+  const scriptWords = script.split(/\s+/);
+  let bestMatch: { text: string; score: number; punctuationCount: number } | null = null;
+  
+  // Search through script in sliding windows (match line length ± 3 words)
+  const lineWordCount = fixed.split(/\s+/).length;
+  const minLen = Math.max(3, lineWordCount - 3);
+  const maxLen = Math.min(scriptWords.length, lineWordCount + 3);
+  
+  for (let i = 0; i < scriptWords.length; i++) {
+    for (let len = minLen; len <= maxLen && i + len <= scriptWords.length; len++) {
+      const scriptSegment = scriptWords.slice(i, i + len).join(' ');
+      const normalizedSegment = normalize(scriptSegment);
+      
+      // Calculate similarity using word overlap
+      const lineWords = normalizedLine.split(/\s+/);
+      const segmentWords = normalizedSegment.split(/\s+/);
+      const matchingWords = lineWords.filter(w => segmentWords.includes(w)).length;
+      const totalWords = Math.max(lineWords.length, segmentWords.length);
+      const score = totalWords > 0 ? matchingWords / totalWords : 0;
+      
+      // Only consider if at least 80% of words match
+      if (score >= 0.8) {
+        const punctuationCount = (scriptSegment.match(/[^\w\s]/g) || []).length;
+        const currentPunctuationCount = (fixed.match(/[^\w\s]/g) || []).length;
+        
+        // Prefer matches with better punctuation or same punctuation but higher score
+        if (!bestMatch || 
+            punctuationCount > currentPunctuationCount ||
+            (punctuationCount === currentPunctuationCount && score > bestMatch.score)) {
+          bestMatch = { text: scriptSegment, score, punctuationCount };
+        }
+      }
+    }
+  }
+  
+  // STEP 4: If we found a good match with better punctuation, use it
+  if (bestMatch && bestMatch.score >= 0.85) {
+    const currentPunctuationCount = (fixed.match(/[^\w\s]/g) || []).length;
+    
+    // Only replace if script version has more punctuation or significantly better match
+    if (bestMatch.punctuationCount > currentPunctuationCount || 
+        (bestMatch.score >= 0.95 && bestMatch.punctuationCount >= currentPunctuationCount)) {
+      return bestMatch.text;
+    }
+  }
+  
+  // STEP 5: Final percentage pattern fix on the result
+  return fixPercentagePatterns(fixed);
 }
 
 function generateASSFile(transcription: any, script: string): string {
@@ -375,9 +622,13 @@ function generateASSFile(transcription: any, script: string): string {
       if (currentLine.length >= 8 || wordText.match(/[.!?]$/)) {
         const currentTime = word.end || lineEndTime;
         
-        // Remove lines that have already ended
+        // Account for fade-out duration (0.3 seconds) - lines are still visible during fade
+        const fadeOutBuffer = 0.3;
+        
+        // Remove lines that have already ended (accounting for fade-out)
         for (let i = activeLines.length - 1; i >= 0; i--) {
-          if (activeLines[i].end <= currentTime) {
+          // Line is considered expired if its end time + fade-out is before current time
+          if (activeLines[i].end + fadeOutBuffer <= currentTime) {
             activeLines.splice(i, 1);
           }
         }
@@ -390,8 +641,8 @@ function generateASSFile(transcription: any, script: string): string {
             current.start < oldest.start ? current : oldest
           );
           
-          // Update the oldest line's end time to end before new line starts
-          const newEndTime = Math.max(oldestLine.start, currentTime - 0.15);
+          // Update the oldest line's end time to end before new line starts (with buffer for fade)
+          const newEndTime = Math.max(oldestLine.start, currentTime - fadeOutBuffer - 0.1);
           lineData[oldestLine.lineIndex].end = newEndTime;
           oldestLine.end = newEndTime;
           
@@ -403,20 +654,39 @@ function generateASSFile(transcription: any, script: string): string {
         }
         
         // Join words with proper spacing and punctuation
-        const lineText = currentLine.join(' ');
+        let lineText = currentLine.join(' ');
         const lineWords = wordIndices.map(i => wordsWithPunctuation[i]);
+        
+        // STEP 3: Post-process line to recover any missed punctuation
+        lineText = recoverPunctuationInLine(lineText, script);
         
         // Add small gap before next line starts (for smoother fade transitions)
         const nextLineStart = currentTime + 0.1;
         
         // Final safety check: Never add if we're already at MAX_LINES
+        // This is a critical check to prevent any possibility of 4 lines
         if (activeLines.length >= MAX_LINES) {
-          // Force end the oldest line
+          // Force end the oldest line(s) until we're below MAX_LINES
           activeLines.sort((a, b) => a.start - b.start);
-          const oldestLine = activeLines[0];
-          const newEndTime = Math.max(oldestLine.start, currentTime - 0.15);
-          lineData[oldestLine.lineIndex].end = newEndTime;
-          activeLines.shift();
+          while (activeLines.length >= MAX_LINES) {
+            const oldestLine = activeLines[0];
+            const newEndTime = Math.max(oldestLine.start, currentTime - fadeOutBuffer - 0.1);
+            lineData[oldestLine.lineIndex].end = newEndTime;
+            activeLines.shift();
+          }
+        }
+        
+        // CRITICAL: Double-check we're still below MAX_LINES before adding
+        if (activeLines.length >= MAX_LINES) {
+          console.warn(`⚠️ Still at MAX_LINES (${activeLines.length}) before adding new line. Forcing cleanup.`);
+          // Emergency cleanup - remove all but the most recent line
+          activeLines.sort((a, b) => b.start - a.start); // Sort by newest first
+          while (activeLines.length >= MAX_LINES) {
+            const oldestLine = activeLines[activeLines.length - 1];
+            const newEndTime = Math.max(oldestLine.start, currentTime - fadeOutBuffer - 0.1);
+            lineData[oldestLine.lineIndex].end = newEndTime;
+            activeLines.pop();
+          }
         }
         
         // Store line data
@@ -443,13 +713,84 @@ function generateASSFile(transcription: any, script: string): string {
     
     // Add remaining words
     if (currentLine.length > 0) {
+      // Get the end time of the last word for cleanup
+      const lastWord = wordsWithPunctuation[wordsWithPunctuation.length - 1];
+      const finalTime = lastWord?.end || lineEndTime;
+      
+      // Account for fade-out duration (0.3 seconds) - lines are still visible during fade
+      const fadeOutBuffer = 0.3;
+      
+      // Remove lines that have already ended (accounting for fade-out)
+      for (let i = activeLines.length - 1; i >= 0; i--) {
+        // Line is considered expired if its end time + fade-out is before final time
+        if (activeLines[i].end + fadeOutBuffer <= finalTime) {
+          activeLines.splice(i, 1);
+        }
+      }
+      
+      // STRICT: Ensure we never exceed MAX_LINES when adding final line
+      while (activeLines.length >= MAX_LINES) {
+        // Find the oldest active line (earliest start time)
+        const oldestLine = activeLines.reduce((oldest, current) => 
+          current.start < oldest.start ? current : oldest
+        );
+        
+        // Update the oldest line's end time to end before final line starts (with buffer for fade)
+        const newEndTime = Math.max(oldestLine.start, finalTime - fadeOutBuffer - 0.1);
+        lineData[oldestLine.lineIndex].end = newEndTime;
+        oldestLine.end = newEndTime;
+        
+        // Remove from active lines
+        const oldestIndex = activeLines.findIndex(l => l.lineIndex === oldestLine.lineIndex);
+        if (oldestIndex >= 0) {
+          activeLines.splice(oldestIndex, 1);
+        }
+      }
+      
+      // Final safety check: Never add if we're already at MAX_LINES
+      if (activeLines.length >= MAX_LINES) {
+        // Force end the oldest line(s) until we're below MAX_LINES
+        activeLines.sort((a, b) => a.start - b.start);
+        while (activeLines.length >= MAX_LINES) {
+          const oldestLine = activeLines[0];
+          const newEndTime = Math.max(oldestLine.start, finalTime - fadeOutBuffer - 0.1);
+          lineData[oldestLine.lineIndex].end = newEndTime;
+          activeLines.shift();
+        }
+      }
+      
+      // CRITICAL: Double-check we're still below MAX_LINES before adding final line
+      if (activeLines.length >= MAX_LINES) {
+        console.warn(`⚠️ Still at MAX_LINES (${activeLines.length}) before adding final line. Forcing cleanup.`);
+        // Emergency cleanup - remove all but the most recent line
+        activeLines.sort((a, b) => b.start - a.start); // Sort by newest first
+        while (activeLines.length >= MAX_LINES) {
+          const oldestLine = activeLines[activeLines.length - 1];
+          const newEndTime = Math.max(oldestLine.start, finalTime - fadeOutBuffer - 0.1);
+          lineData[oldestLine.lineIndex].end = newEndTime;
+          activeLines.pop();
+        }
+      }
+      
       const lineWords = wordIndices.map(i => wordsWithPunctuation[i]);
-      const finalLineText = currentLine.join(' ');
+      let finalLineText = currentLine.join(' ');
+      
+      // STEP 3: Post-process final line to recover any missed punctuation
+      finalLineText = recoverPunctuationInLine(finalLineText, script);
+      
+      const finalLineIndex = lineData.length;
       lineData.push({
         start: lineStartTime,
         end: lineEndTime,
         text: finalLineText,
         words: lineWords
+      });
+      
+      // Track final line as active (guaranteed to be < MAX_LINES at this point)
+      activeLines.push({
+        start: lineStartTime,
+        end: lineEndTime,
+        lineIndex: finalLineIndex
       });
     }
     
@@ -703,11 +1044,26 @@ async function createVideoWithStaticAvatar(
     const fadeInDuration = 0.5; // 0.5 second fade-in
     const sentimentText = escapeText(`Market: ${script.priceUpdate.marketSentiment.toUpperCase()}`);
     
+    // Convert to ALL CAPS for modern look
+    const sentimentTextUpper = sentimentText.toUpperCase();
+    
     // Fade-in animation: alpha goes from 0 to 1 over fadeInDuration
     const fadeInEnd = priceStart + fadeInDuration;
-    priceOverlays.push(
-      `drawtext=text='${sentimentText}':fontsize=42:fontcolor=0xFFFFFF:borderw=3:bordercolor=0x000000:shadowx=2:shadowy=2:shadowcolor=0x000000@0.8:x=(w-text_w)/2:y=60:alpha='if(between(t\\,${priceStart}\\,${fadeInEnd})\\,(t-${priceStart})/${fadeInDuration}\\,1)':enable='between(t\\,${priceStart}\\,${priceTitleEnd})'`
-    );
+    const alphaExpr = `'if(between(t\\,${priceStart}\\,${fadeInEnd})\\,(t-${priceStart})/${fadeInDuration}\\,1)'`;
+    const enableExpr = `'between(t\\,${priceStart}\\,${priceTitleEnd})'`;
+    const centerX = '(w-text_w)/2';
+    const yPos = 60;
+    
+     // DEGEN-FRIENDLY: 2-layer intense neon glow for price updates
+     // Layer 1: Outer glow (orange with cyan shadow accent)
+     priceOverlays.push(
+       `drawtext=text='${sentimentTextUpper}':fontsize=48:fontcolor=0xF7931A@0.4:borderw=5:bordercolor=0xF7931A@0.3:shadowx=5:shadowy=5:shadowcolor=0x00D9FF@0.35:x=${centerX}:y=${yPos}:alpha=${alphaExpr}:enable=${enableExpr}`
+     );
+     
+     // Layer 2: Main text (bright white with strong orange shadow)
+     priceOverlays.push(
+       `drawtext=text='${sentimentTextUpper}':fontsize=44:fontcolor=0xFFFFFF:borderw=4:bordercolor=0x000000:shadowx=3:shadowy=3:shadowcolor=0xF7931A@0.7:x=${centerX}:y=${yPos}:alpha=${alphaExpr}:enable=${enableExpr}`
+     );
     
     // Winners section (below title) - Green with improved spacing and glow
     const winners = script.priceUpdate.topWinners.slice(0, 3);
@@ -746,11 +1102,26 @@ async function createVideoWithStaticAvatar(
     const nftTitleEnd = Math.min(nftStart + nftTitleDuration, nftEnd);
     const fadeInDuration = 0.5; // 0.5 second fade-in
     
+    // Convert to ALL CAPS for modern look
+    const nftTitleText = 'NFT UPDATE';
+    
     // Fade-in animation for title
     const fadeInEnd = nftStart + fadeInDuration;
-    nftOverlays.push(
-      `drawtext=text='NFT UPDATE':fontsize=54:fontcolor=0xFFFFFF:borderw=3:bordercolor=0x000000:shadowx=2:shadowy=2:shadowcolor=0x000000@0.8:x=(w-text_w)/2:y=60:alpha='if(between(t\\,${nftStart}\\,${fadeInEnd})\\,(t-${nftStart})/${fadeInDuration}\\,1)':enable='between(t\\,${nftStart}\\,${nftTitleEnd})'`
-    );
+    const alphaExpr = `'if(between(t\\,${nftStart}\\,${fadeInEnd})\\,(t-${nftStart})/${fadeInDuration}\\,1)'`;
+    const enableExpr = `'between(t\\,${nftStart}\\,${nftTitleEnd})'`;
+    const centerX = '(w-text_w)/2';
+    const yPos = 60;
+    
+     // DEGEN-FRIENDLY: 2-layer maximum intensity for NFT titles (NFTs are peak degen)
+     // Layer 1: Outer glow (orange with cyan shadow accent)
+     nftOverlays.push(
+       `drawtext=text='${nftTitleText}':fontsize=60:fontcolor=0xF7931A@0.45:borderw=6:bordercolor=0xF7931A@0.35:shadowx=6:shadowy=6:shadowcolor=0x00D9FF@0.4:x=${centerX}:y=${yPos}:alpha=${alphaExpr}:enable=${enableExpr}`
+     );
+     
+     // Layer 2: Main text (bright white with intense orange shadow)
+     nftOverlays.push(
+       `drawtext=text='${nftTitleText}':fontsize=56:fontcolor=0xFFFFFF:borderw=4:bordercolor=0x000000:shadowx=3:shadowy=3:shadowcolor=0xF7931A@0.75:x=${centerX}:y=${yPos}:alpha=${alphaExpr}:enable=${enableExpr}`
+     );
     
     const nfts = script.nftUpdate.trendingCollections.slice(0, 3);
     nfts.forEach((nft, index) => {
@@ -803,9 +1174,9 @@ async function createVideoWithStaticAvatar(
     for (let index = 0; index < script.topics.length; index++) {
       const topic = script.topics[index];
       
-      // Truncate topic title to maximum 3 words
+      // Truncate topic title to maximum 3 words and convert to ALL CAPS
       const words = topic.title.split(' ').filter(w => w.trim().length > 0);
-      const truncatedTitle = words.slice(0, 3).join(' ');
+      const truncatedTitle = words.slice(0, 3).join(' ').toUpperCase();
       
       // Find where this topic appears in the script - look for the START of the topic section
       const topicKeywords = truncatedTitle.split(' ').slice(0, 3).filter(w => w.length > 2);
@@ -949,7 +1320,7 @@ async function createVideoWithStaticAvatar(
     for (const scheduled of scheduledTopics) {
       const { schedule, start: topicStart, end: topicEnd } = scheduled;
       
-      // Write truncated topic title to a text file to avoid escaping issues
+      // Write truncated topic title (ALL CAPS) to a text file to avoid escaping issues
       const topicTextFile = path.join(outputDir, `topic_${topicFileBaseTimestamp}_${schedule.index}.txt`);
       await fs.writeFile(topicTextFile, schedule.truncatedTitle, 'utf-8');
       topicTextFiles.push(topicTextFile);
@@ -959,8 +1330,20 @@ async function createVideoWithStaticAvatar(
       
       // Fade-in animation: alpha goes from 0 to 1 over fadeInDuration
       const fadeInEnd = topicStart + fadeInDuration;
+      const alphaExpr = `'if(between(t\\,${topicStart}\\,${fadeInEnd})\\,(t-${topicStart})/${fadeInDuration}\\,1)'`;
+      const enableExpr = `'between(t\\,${topicStart}\\,${topicEnd})'`;
+      const centerX = '(w-text_w)/2';
+      const yPos = 60;
+      
+      // DEGEN-FRIENDLY STYLE: 2-layer intense neon glow
+      // Layer 1: Outer glow (orange with cyan accent for degen vibe)
       topicOverlays.push(
-        `drawtext=textfile='${escapedTopicFile}':fontsize=48:fontcolor=0xFFFFFF:borderw=3:bordercolor=0x000000:shadowx=2:shadowy=2:shadowcolor=0x000000@0.8:x=(w-text_w)/2:y=60:alpha='if(between(t\\,${topicStart}\\,${fadeInEnd})\\,(t-${topicStart})/${fadeInDuration}\\,1)':enable='between(t\\,${topicStart}\\,${topicEnd})'`
+        `drawtext=textfile='${escapedTopicFile}':fontsize=54:fontcolor=0xF7931A@0.4:borderw=5:bordercolor=0xF7931A@0.3:shadowx=5:shadowy=5:shadowcolor=0x00D9FF@0.35:x=${centerX}:y=${yPos}:alpha=${alphaExpr}:enable=${enableExpr}`
+      );
+      
+      // Layer 2: Main text (bright white with strong orange shadow)
+      topicOverlays.push(
+        `drawtext=textfile='${escapedTopicFile}':fontsize=50:fontcolor=0xFFFFFF:borderw=4:bordercolor=0x000000:shadowx=3:shadowy=3:shadowcolor=0xF7931A@0.7:x=${centerX}:y=${yPos}:alpha=${alphaExpr}:enable=${enableExpr}`
       );
     }
   }
@@ -1091,9 +1474,10 @@ async function createVideoWithStaticAvatar(
     // Add Bitcoin orange accent at edges
     const accentWidth = 5;
     const accentAlphaHex = (220).toString(16).padStart(2, '0').toLowerCase(); // 0xdc
+    // Use Bitcoin orange (#F7931A = 0xF7931A) for ticker accents to match degen palette
     const accentBoxes = [
-      `drawbox=x=0:y=${tickerTopY}:w=${accentWidth}:h=${tickerHeight + (tickerPadding * 2)}:color=0x1A93F7${accentAlphaHex}:t=fill`, // Left edge
-      `drawbox=x=${videoWidth - accentWidth}:y=${tickerTopY}:w=${accentWidth}:h=${tickerHeight + (tickerPadding * 2)}:color=0x1A93F7${accentAlphaHex}:t=fill` // Right edge
+      `drawbox=x=0:y=${tickerTopY}:w=${accentWidth}:h=${tickerHeight + (tickerPadding * 2)}:color=0xF7931A${accentAlphaHex}:t=fill`, // Left edge - Bitcoin orange
+      `drawbox=x=${videoWidth - accentWidth}:y=${tickerTopY}:w=${accentWidth}:h=${tickerHeight + (tickerPadding * 2)}:color=0xF7931A${accentAlphaHex}:t=fill` // Right edge - Bitcoin orange
     ];
     
     // Combine gradient and accent boxes
@@ -1269,11 +1653,11 @@ async function createAvatarImage(outputDir: string): Promise<string> {
       const canvas = createCanvas(1280, 720);
       const ctx = canvas.getContext('2d');
 
-      // MATCH THUMBNAIL STYLE: Dark gradient background
+      // MATCH THUMBNAIL STYLE: Dark gradient background (degen palette)
       const bgGradient = ctx.createLinearGradient(0, 0, 1280, 720);
-      bgGradient.addColorStop(0, '#0a0a0a');
-      bgGradient.addColorStop(0.5, '#1a1a2e');
-      bgGradient.addColorStop(1, '#0a0a0a');
+      bgGradient.addColorStop(0, '#0a0a0f'); // degen-bg-dark
+      bgGradient.addColorStop(0.5, '#1a0a2e'); // degen-bg-medium
+      bgGradient.addColorStop(1, '#0a0a0f'); // degen-bg-dark
       ctx.fillStyle = bgGradient;
       ctx.fillRect(0, 0, 1280, 720);
       
@@ -1368,9 +1752,9 @@ async function createAvatarImage(outputDir: string): Promise<string> {
 <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0a0a0a;stop-opacity:1" />
-      <stop offset="50%" style="stop-color:#1a1a2e;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#0a0a0a;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#0a0a0f;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#1a0a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0a0a0f;stop-opacity:1" />
     </linearGradient>
     <radialGradient id="accentGrad" cx="86%" cy="14%">
       <stop offset="0%" style="stop-color:#F7931A;stop-opacity:0.4" />
@@ -1460,8 +1844,8 @@ export async function generateThumbnail(
     } catch (error) {
       console.warn('Failed to generate AI design, using defaults:', error);
       thumbnailDesign = {
-        backgroundColor: '#0a0a0a',
-        accentColor: isDeepDive ? '#4caf50' : '#F7931A', // Green for deep dive, Bitcoin orange for news
+        backgroundColor: '#0a0a0f', // degen-bg-dark - matches new palette
+        accentColor: isDeepDive ? '#00FF88' : '#F7931A', // degen-green for deep dive, Bitcoin orange for news
         textColor: '#FFFFFF',
         layout: 'centered',
         visualElements: ['gradient', 'glow', 'grid'],
@@ -1584,7 +1968,7 @@ export async function generateThumbnail(
         if (titleLines.length <= maxLines) {
           // Double-check each line actually fits horizontally
           let allLinesFit = true;
-          ctx.font = `bold ${fontSize}px Arial`;
+          ctx.font = `700 ${fontSize}px Arial, sans-serif`;
           for (const line of titleLines) {
             const width = ctx.measureText(line).width;
             if (width > textMaxWidth) {
@@ -1619,7 +2003,7 @@ export async function generateThumbnail(
         if (titleLines.length > maxLines) {
           titleLines = titleLines.slice(0, maxLines);
           // Truncate last line if needed
-          ctx.font = `bold ${fontSize}px Arial`;
+          ctx.font = `700 ${fontSize}px Arial, sans-serif`;
           const lastLine = titleLines[maxLines - 1];
           let truncated = lastLine;
           while (ctx.measureText(truncated).width > textMaxWidth && truncated.length > 0) {
@@ -1643,7 +2027,8 @@ export async function generateThumbnail(
       
       titleLines.forEach((line: string, index: number) => {
         // Set font and alignment (use the calculated fontSize)
-        ctx.font = `bold ${fontSize}px Arial`;
+        // Use numeric font weight (700 = bold) for better Canvas rendering
+        ctx.font = `700 ${fontSize}px Arial, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         
@@ -1657,9 +2042,9 @@ export async function generateThumbnail(
         ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
         ctx.fillText(line, centerX, yPos + 3);
         
-        // Step 2: Draw thin black stroke for definition
+        // Step 2: Draw thicker black stroke for better bold appearance
         ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 3; // Thin stroke
+        ctx.lineWidth = 4; // Increased from 3 to 4 for bolder appearance
         ctx.strokeText(line, centerX, yPos);
         
         // Step 3: Draw text using AI-specified color for maximum impact
@@ -1855,8 +2240,8 @@ export async function generateThumbnail(
           design = await generateThumbnailDesign(script.title, script.topics);
         } catch (error) {
           design = {
-            backgroundColor: '#0a0a0a',
-            accentColor: isDeepDive ? '#4caf50' : '#F7931A', // Green for deep dive, Bitcoin orange for news
+            backgroundColor: '#0a0a0f', // degen-bg-dark - matches new palette
+            accentColor: isDeepDive ? '#00FF88' : '#F7931A', // degen-green for deep dive, Bitcoin orange for news
             textColor: '#FFFFFF',
             layout: 'centered',
             visualElements: ['gradient', 'glow', 'grid'],
@@ -2147,8 +2532,8 @@ function wrapText(
   maxWidth: number,
   fontSize: number = 72
 ): string[] {
-  // Set font size for accurate measurement
-  ctx.font = `bold ${fontSize}px Arial`;
+  // Set font size for accurate measurement (use 700 for bold weight)
+  ctx.font = `700 ${fontSize}px Arial, sans-serif`;
   
   // Split by spaces to preserve emojis (they're part of words)
   const parts = text.split(/\s+/).filter(p => p.length > 0);
@@ -2187,7 +2572,7 @@ function wrapText(
     const line3 = parts.slice(wordsPerLine * 2).join(' ');
     
     // Check if all lines fit within maxWidth
-    ctx.font = `bold ${fontSize}px Arial`;
+    ctx.font = `700 ${fontSize}px Arial, sans-serif`;
     const line1Width = ctx.measureText(line1).width;
     const line2Width = ctx.measureText(line2).width;
     const line3Width = ctx.measureText(line3).width;

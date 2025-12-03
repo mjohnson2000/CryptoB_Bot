@@ -6,6 +6,9 @@ import { fileURLToPath } from 'url';
 import { videoRouter } from './routes/video.js';
 import { automationRouter } from './routes/automation.js';
 import deepDiveRouter from './routes/deepDive.js';
+import { blogRouter } from './routes/blog.js';
+import { authRouter } from './routes/auth.js';
+import { authenticate } from './middleware/auth.js';
 import { automationService } from '../services/automationService.js';
 import { deepDiveAutomationService } from '../services/deepDiveAutomationService.js';
 
@@ -152,9 +155,14 @@ app.use(express.static(clientDistDir));
 // ROUTES
 // ============================================================================
 
-app.use('/api/video', videoRouter);
-app.use('/api/automation', automationRouter);
-app.use('/api/deepdive', deepDiveRouter);
+// Public routes (no authentication required)
+app.use('/api/auth', authRouter);
+app.use('/api/blog', blogRouter); // Blog GET routes are public
+
+// Protected routes (authentication required)
+app.use('/api/video', authenticate, videoRouter);
+app.use('/api/automation', authenticate, automationRouter);
+app.use('/api/deepdive', authenticate, deepDiveRouter);
 
 // Enhanced health check endpoint
 app.get('/api/health', (req, res) => {
@@ -187,12 +195,13 @@ app.get('/api/health', (req, res) => {
 });
 
 // Serve React app for all non-API routes (SPA fallback)
+// This handles /blog, /blog/:id, /admin, and all other routes
 app.get('*', (req, res) => {
   // Don't serve index.html for API routes
   if (req.path.startsWith('/api')) {
     return res.status(404).json({ error: 'API endpoint not found' });
   }
-  // Serve React app's index.html for all other routes
+  // Serve React app's index.html for all other routes (React Router will handle routing)
   const indexPath = path.join(process.cwd(), 'client', 'dist', 'index.html');
   res.sendFile(indexPath);
 });
