@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Router, Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -158,6 +158,57 @@ app.use(express.static(clientDistDir));
 // Public routes (no authentication required)
 app.use('/api/auth', authRouter);
 app.use('/api/blog', blogRouter); // Blog GET routes are public
+
+// Create a separate router for public preview routes
+const previewRouter = Router();
+previewRouter.get('/video/:filename', (req: Request, res: Response) => {
+  try {
+    const { filename } = req.params;
+    const safeFilename = path.basename(filename);
+    const videoPath = path.join(process.cwd(), 'output', safeFilename);
+    res.sendFile(videoPath, (err: Error | null) => {
+      if (err) {
+        const nodeErr = err as NodeJS.ErrnoException;
+        if (nodeErr.code === 'EPIPE' || nodeErr.code === 'ECONNRESET') {
+          return;
+        }
+        console.error('Error serving video:', err);
+        if (!res.headersSent) {
+          res.status(404).json({ error: 'Video not found' });
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error in video preview endpoint:', error);
+    res.status(500).json({ error: 'Error serving video' });
+  }
+});
+
+previewRouter.get('/thumbnail/:filename', (req: Request, res: Response) => {
+  try {
+    const { filename } = req.params;
+    const safeFilename = path.basename(filename);
+    const thumbnailPath = path.join(process.cwd(), 'output', safeFilename);
+    res.sendFile(thumbnailPath, (err: Error | null) => {
+      if (err) {
+        const nodeErr = err as NodeJS.ErrnoException;
+        if (nodeErr.code === 'EPIPE' || nodeErr.code === 'ECONNRESET') {
+          return;
+        }
+        console.error('Error serving thumbnail:', err);
+        if (!res.headersSent) {
+          res.status(404).json({ error: 'Thumbnail not found' });
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error in thumbnail preview endpoint:', error);
+    res.status(500).json({ error: 'Error serving thumbnail' });
+  }
+});
+
+// Public preview routes (no authentication required)
+app.use('/api/video/preview', previewRouter);
 
 // Protected routes (authentication required)
 app.use('/api/video', authenticate, videoRouter);

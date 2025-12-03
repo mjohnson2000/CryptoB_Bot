@@ -265,14 +265,31 @@ function Admin() {
 
   const getVideoPreviewUrl = (videoPath?: string) => {
     if (!videoPath) return null;
-    const filename = videoPath.split('/').pop() || videoPath.split('\\').pop();
+    // Handle both forward slashes and backslashes, and normalize the path
+    const normalizedPath = videoPath.replace(/\\/g, '/');
+    const filename = normalizedPath.split('/').pop();
+    if (!filename) {
+      console.error('❌ Could not extract filename from video path:', videoPath);
+      return null;
+    }
     return `/api/video/preview/video/${filename}`;
   };
 
   const getThumbnailPreviewUrl = (thumbnailPath?: string) => {
-    if (!thumbnailPath) return null;
-    const filename = thumbnailPath.split('/').pop() || thumbnailPath.split('\\').pop();
-    return `/api/video/preview/thumbnail/${filename}`;
+    if (!thumbnailPath) {
+      console.log('⚠️ No thumbnail path provided');
+      return null;
+    }
+    // Handle both forward slashes and backslashes, and normalize the path
+    const normalizedPath = thumbnailPath.replace(/\\/g, '/');
+    const filename = normalizedPath.split('/').pop();
+    if (!filename) {
+      console.error('❌ Could not extract filename from thumbnail path:', thumbnailPath);
+      return null;
+    }
+    const url = `/api/video/preview/thumbnail/${filename}`;
+    console.log('🖼️ Thumbnail URL:', url, 'from path:', thumbnailPath);
+    return url;
   };
 
   const fetchAutomationStatus = async () => {
@@ -601,23 +618,33 @@ function Admin() {
                           </div>
                         </div>
                       )}
-                      {getThumbnailPreviewUrl(progress.result.thumbnailPath) && (
+                      {progress.result.thumbnailPath && (
                         <div className="preview-item">
                           <h4>Thumbnail:</h4>
-                          <div className="thumbnail-preview">
-                            <img
-                              src={getThumbnailPreviewUrl(progress.result.thumbnailPath)!}
-                              alt="Thumbnail"
-                              className="thumbnail-image"
-                              onError={() => {
-                                console.error('❌ Thumbnail image failed to load:', getThumbnailPreviewUrl(progress.result?.thumbnailPath));
-                                console.error('Thumbnail path:', progress.result?.thumbnailPath);
-                              }}
-                              onLoad={() => {
-                                console.log('✅ Thumbnail loaded successfully:', getThumbnailPreviewUrl(progress.result?.thumbnailPath));
-                              }}
-                            />
-                          </div>
+                          {getThumbnailPreviewUrl(progress.result.thumbnailPath) ? (
+                            <div className="thumbnail-preview">
+                              <img
+                                src={getThumbnailPreviewUrl(progress.result.thumbnailPath)!}
+                                alt="Thumbnail"
+                                className="thumbnail-image"
+                                onError={() => {
+                                  console.error('❌ Thumbnail image failed to load');
+                                  console.error('Thumbnail URL:', getThumbnailPreviewUrl(progress.result?.thumbnailPath));
+                                  console.error('Thumbnail path from server:', progress.result?.thumbnailPath);
+                                }}
+                                onLoad={() => {
+                                  console.log('✅ Thumbnail loaded successfully');
+                                }}
+                              />
+                            </div>
+                          ) : (
+                            <div style={{ padding: '1rem', background: '#ffebee', border: '1px solid #f44336', borderRadius: '8px' }}>
+                              <p style={{ color: '#c62828', margin: 0 }}>⚠️ Could not generate thumbnail URL</p>
+                              <p style={{ color: '#666', fontSize: '0.9rem', marginTop: '0.5rem' }}>
+                                Path: {progress.result.thumbnailPath}
+                              </p>
+                            </div>
+                          )}
                         </div>
                       )}
                       {progress.result.script && (
