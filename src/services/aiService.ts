@@ -306,6 +306,29 @@ Format your response as JSON:
 
     const parsed = JSON.parse(content);
 
+    // Remove exclamation marks and emojis from video title
+    if (parsed.title) {
+      parsed.title = parsed.title
+        .replace(/!/g, '') // Remove exclamation marks
+        .replace(/[\u{1F300}-\u{1F9FF}]/gu, '') // Emoticons & Symbols
+        .replace(/[\u{2600}-\u{26FF}]/gu, '') // Miscellaneous Symbols
+        .replace(/[\u{2700}-\u{27BF}]/gu, '') // Dingbats
+        .replace(/[\u{1F600}-\u{1F64F}]/gu, '') // Emoticons
+        .replace(/[\u{1F680}-\u{1F6FF}]/gu, '') // Transport & Map
+        .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '') // Flags
+        .replace(/[\u{1F900}-\u{1F9FF}]/gu, '') // Supplemental Symbols
+        .replace(/[\u{1FA00}-\u{1FA6F}]/gu, '') // Chess Symbols
+        .replace(/[\u{1FA70}-\u{1FAFF}]/gu, '') // Symbols and Pictographs Extended-A
+        .replace(/[\u{2190}-\u{21FF}]/gu, '') // Arrows
+        .replace(/[\u{2300}-\u{23FF}]/gu, '') // Miscellaneous Technical
+        .replace(/[\u{2B50}-\u{2B55}]/gu, '') // Miscellaneous Symbols and Arrows
+        .replace(/[\u{3030}-\u{303F}]/gu, '') // CJK Symbols and Punctuation
+        .replace(/[\u{3297}-\u{3299}]/gu, '') // CJK Compatibility
+        .replace(/[^\x00-\x7F]/g, '') // Remove any remaining non-ASCII characters
+        .replace(/\s+/g, ' ') // Clean up multiple spaces
+        .trim();
+    }
+
     // Generate a shorter, more catchy thumbnail title
     let thumbnailTitle = parsed.title || 'Latest Crypto News';
     
@@ -317,28 +340,28 @@ Format your response as JSON:
       thumbnailTitle = thumbnailTitle.trim();
     }
     
-    // Always use AI to create an optimal 3-word thumbnail title
+    // Always use AI to create an optimal 3-word max thumbnail title
     try {
       const thumbnailPrompt = `Create a SHORT, CATCHY thumbnail title for a YouTube crypto news video. This will be displayed on a thumbnail image, so it needs to be:
-- EXACTLY 3 words (no more, no less - must be exactly 3 words)
+- EXACTLY 3 words maximum (no more, no less if possible)
 - Eye-catching and clickable
 - Use power words (BREAKING, SHOCKING, INSANE, MOONING, CRASH, SURGE, etc.)
 - Keep the main message but make it punchy and attention-grabbing
 - Focus on the most impactful news element
 - NO emojis (keep it text-only, but still exciting)
+- NO exclamation marks (keep it clean and professional)
 - Use ALL CAPS for maximum visual impact
-- Add exclamation marks for excitement when appropriate
 
 Original title: "${thumbnailTitle}"
 
-Return ONLY the 3-word thumbnail title in ALL CAPS, nothing else. No quotes, no explanations. Make it exciting and clickable but NO emojis. It MUST be exactly 3 words.`;
+Return ONLY the 3-word thumbnail title in ALL CAPS, nothing else. No quotes, no explanations, no exclamation marks, no emojis.`;
 
         const thumbnailResponse = await openai.chat.completions.create({
           model: 'gpt-4-turbo-preview',
           messages: [
             {
               role: 'system',
-              content: 'You are an expert at creating short, catchy YouTube thumbnail titles that grab attention. You MUST always return exactly 3 words - no more, no less. Use ALL CAPS and power words, but NO emojis.'
+              content: 'You are an expert at creating short, catchy YouTube thumbnail titles that grab attention. Always return exactly 3 words when possible. Use ALL CAPS and power words, but NO emojis and NO exclamation marks.'
             },
             {
               role: 'user',
@@ -376,48 +399,27 @@ Return ONLY the 3-word thumbnail title in ALL CAPS, nothing else. No quotes, no 
             .replace(/[\u{3030}-\u{303F}]/gu, '') // CJK Symbols and Punctuation
             .replace(/[\u{3297}-\u{3299}]/gu, '') // CJK Compatibility
             .replace(/[^\x00-\x7F]/g, '') // Remove any remaining non-ASCII characters
+            .replace(/!/g, '') // Remove exclamation marks
             .replace(/\s+/g, ' ') // Clean up multiple spaces
             .trim();
           
           // Convert to ALL CAPS for maximum impact (but preserve numbers and punctuation)
           shortTitle = shortTitle.replace(/[a-z]/g, (match: string) => match.toUpperCase());
           
-          // Enforce exactly 3 words
+          // Ensure it's 3 words max
           const words = shortTitle.split(/\s+/).filter((w: string) => w.length > 0);
           if (words.length > 3) {
-            // Take first 3 words if more than 3
             thumbnailTitle = words.slice(0, 3).join(' ');
-          } else if (words.length < 3) {
-            // If less than 3 words, pad with power words or take from original title
-            const originalWords = thumbnailTitle.split(/\s+/).filter((w: string) => w.length > 0);
-            if (originalWords.length >= 3) {
-              thumbnailTitle = originalWords.slice(0, 3).join(' ').toUpperCase();
-            } else {
-              // Last resort: pad with "CRYPTO NEWS" or similar
-              const powerWords = ['BREAKING', 'SHOCKING', 'INSANE', 'MOONING', 'CRASH', 'SURGE'];
-              while (words.length < 3) {
-                words.push(powerWords[words.length % powerWords.length]);
-              }
-              thumbnailTitle = words.slice(0, 3).join(' ');
-            }
           } else {
-            // Exactly 3 words - perfect!
             thumbnailTitle = shortTitle;
           }
-          console.log(`✅ Generated 3-word thumbnail title: "${thumbnailTitle}" (${thumbnailTitle.split(/\s+/).length} words)`);
+          console.log(`✅ Generated 3-word thumbnail title: "${thumbnailTitle}"`);
         }
       } catch (error) {
         console.warn('Failed to generate thumbnail title, using fallback:', error);
         // Fallback: take first 3 words of original title
         const words = thumbnailTitle.split(/\s+/).filter((w: string) => w.length > 0);
-        if (words.length >= 3) {
-          thumbnailTitle = words.slice(0, 3).join(' ').toUpperCase();
-        } else {
-          // Pad to 3 words if needed
-          const powerWords = ['BREAKING', 'SHOCKING', 'INSANE'];
-          while (words.length < 3) {
-            words.push(powerWords[words.length % powerWords.length]);
-          }
+        if (words.length > 3) {
           thumbnailTitle = words.slice(0, 3).join(' ');
         }
       }
@@ -601,8 +603,8 @@ Stay tuned for more crypto alpha! Make sure to subscribe and hit the bell so you
   }
 
   return {
-    title: '🚀 CRYPTO IS MOONING! Top 3 Stories You NEED to Know',
-    thumbnailTitle: '🚀 CRYPTO MOONING! Top 3 Stories',
+    title: 'CRYPTO IS MOONING Top 3 Stories You NEED to Know',
+    thumbnailTitle: 'CRYPTO MOONING TOP STORIES',
     description,
     tags: ['crypto', 'bitcoin', 'ethereum', 'defi', 'cryptocurrency', 'trading', 'crypto news'],
     script: `Yo what's up degens! Crypto B here, and we've got some absolutely INSANE crypto news dropping in the last 6 hours. That's right - we're bringing you the freshest alpha every 6 hours, so you're always ahead of the game. If you're not paying attention, you're missing out on some serious moves. Let's dive in!
@@ -848,6 +850,30 @@ Format your response as JSON:
     }
 
     const parsed = JSON.parse(scriptContent);
+    
+    // Remove exclamation marks and emojis from deep dive video title
+    if (parsed.title) {
+      parsed.title = parsed.title
+        .replace(/!/g, '') // Remove exclamation marks
+        .replace(/[\u{1F300}-\u{1F9FF}]/gu, '') // Emoticons & Symbols
+        .replace(/[\u{2600}-\u{26FF}]/gu, '') // Miscellaneous Symbols
+        .replace(/[\u{2700}-\u{27BF}]/gu, '') // Dingbats
+        .replace(/[\u{1F600}-\u{1F64F}]/gu, '') // Emoticons
+        .replace(/[\u{1F680}-\u{1F6FF}]/gu, '') // Transport & Map
+        .replace(/[\u{1F1E0}-\u{1F1FF}]/gu, '') // Flags
+        .replace(/[\u{1F900}-\u{1F9FF}]/gu, '') // Supplemental Symbols
+        .replace(/[\u{1FA00}-\u{1FA6F}]/gu, '') // Chess Symbols
+        .replace(/[\u{1FA70}-\u{1FAFF}]/gu, '') // Symbols and Pictographs Extended-A
+        .replace(/[\u{2190}-\u{21FF}]/gu, '') // Arrows
+        .replace(/[\u{2300}-\u{23FF}]/gu, '') // Miscellaneous Technical
+        .replace(/[\u{2B50}-\u{2B55}]/gu, '') // Miscellaneous Symbols and Arrows
+        .replace(/[\u{3030}-\u{303F}]/gu, '') // CJK Symbols and Punctuation
+        .replace(/[\u{3297}-\u{3299}]/gu, '') // CJK Compatibility
+        .replace(/[^\x00-\x7F]/g, '') // Remove any remaining non-ASCII characters
+        .replace(/\s+/g, ' ') // Clean up multiple spaces
+        .trim();
+    }
+    
     let scriptText = parsed.script || '';
 
     // Validate script quality
@@ -923,26 +949,26 @@ Format your response as JSON:
     
     try {
       const thumbnailPrompt = `Create a SHORT, CATCHY thumbnail title for a YouTube crypto deep dive video. This will be displayed on a thumbnail image, so it needs to be:
-- EXACTLY 3 words (no more, no less - must be exactly 3 words)
+- EXACTLY 3 words maximum (no more, no less if possible)
 - Eye-catching and clickable
 - Use power words (BREAKING, SHOCKING, INSANE, MOONING, CRASH, SURGE, EXPLAINED, REVEALED, SECRETS, etc.)
 - Keep the main message but make it punchy and attention-grabbing
 - Focus on the most impactful element of the topic
 - NO emojis (keep it text-only, but still exciting)
+- NO exclamation marks (keep it clean and professional)
 - Use ALL CAPS for maximum visual impact
-- Add exclamation marks for excitement when appropriate
 
 Topic being explained: "${topicForThumbnail}"
 Original video title: "${parsed.title || `DEEP DIVE: ${topic}`}"
 
-Return ONLY the 3-word thumbnail title in ALL CAPS, nothing else. No quotes, no explanations. Make it exciting and clickable but NO emojis. It MUST be exactly 3 words.`;
+Return ONLY the 3-word thumbnail title in ALL CAPS, nothing else. No quotes, no explanations, no exclamation marks, no emojis.`;
 
       const thumbnailResponse = await openai.chat.completions.create({
         model: 'gpt-4-turbo-preview',
         messages: [
           {
             role: 'system',
-            content: 'You are an expert at creating short, catchy YouTube thumbnail titles that grab attention. You MUST always return exactly 3 words - no more, no less. Use ALL CAPS and power words, but NO emojis.'
+            content: 'You are an expert at creating short, catchy YouTube thumbnail titles that grab attention. Always return exactly 3 words when possible. Use ALL CAPS and power words, but NO emojis and NO exclamation marks.'
           },
           {
             role: 'user',
@@ -965,45 +991,29 @@ Return ONLY the 3-word thumbnail title in ALL CAPS, nothing else. No quotes, no 
           thumbnailTitle = generatedThumbnailTitle.trim();
         }
         
+        // Remove exclamation marks
+        thumbnailTitle = thumbnailTitle.replace(/!/g, '');
+        
         // Convert to ALL CAPS for maximum impact (but preserve numbers and punctuation)
         thumbnailTitle = thumbnailTitle.replace(/[a-z]/g, (match: string) => match.toUpperCase());
         
-        // Enforce exactly 3 words
+        // Ensure it's 3 words max
         const words = thumbnailTitle.split(/\s+/).filter((w: string) => w.length > 0);
         if (words.length > 3) {
-          // Take first 3 words if more than 3
           thumbnailTitle = words.slice(0, 3).join(' ');
-        } else if (words.length < 3) {
-          // If less than 3 words, pad with power words or take from topic
-          const topicWords = topicForThumbnail.split(/\s+/).filter((w: string) => w.length > 0);
-          if (topicWords.length >= 3) {
-            thumbnailTitle = topicWords.slice(0, 3).join(' ').toUpperCase();
-          } else {
-            // Last resort: pad with power words
-            const powerWords = ['EXPLAINED', 'REVEALED', 'SECRETS', 'BREAKING', 'SHOCKING'];
-            while (words.length < 3) {
-              words.push(powerWords[words.length % powerWords.length]);
-            }
-            thumbnailTitle = words.slice(0, 3).join(' ');
-          }
         }
         
-        console.log(`✅ Generated deep dive thumbnail title: "${thumbnailTitle}" (${thumbnailTitle.split(/\s+/).length} words)`);
+        console.log(`✅ Generated deep dive thumbnail title: "${thumbnailTitle}"`);
       }
     } catch (error) {
       console.warn('Failed to generate AI thumbnail title, using fallback:', error);
       // Fallback: Create a simple 3-word title from the topic
       const topicWords = topicForThumbnail.split(/\s+/).filter((w: string) => w.length > 0);
-      if (topicWords.length >= 3) {
-        thumbnailTitle = topicWords.slice(0, 3).join(' ').toUpperCase();
+      if (topicWords.length <= 3) {
+        thumbnailTitle = topicWords.join(' ').toUpperCase();
       } else {
-        // Pad to 3 words if needed
-        const powerWords = ['EXPLAINED', 'REVEALED', 'SECRETS'];
-        const words = [...topicWords];
-        while (words.length < 3) {
-          words.push(powerWords[words.length % powerWords.length]);
-        }
-        thumbnailTitle = words.slice(0, 3).join(' ');
+        // Take first 3 words and make it ALL CAPS
+        thumbnailTitle = topicWords.slice(0, 3).join(' ').toUpperCase();
       }
     }
 
